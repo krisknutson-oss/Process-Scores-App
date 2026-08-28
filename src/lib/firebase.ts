@@ -22,20 +22,36 @@ import type {
 
 import firebaseConfigData from '../../firebase-applet-config.json';
 
+const defaultFirebaseConfig = {
+  projectId: "gen-lang-client-0426297362",
+  appId: "1:727251518687:web:12d26294db95479c4dd56a",
+  apiKey: "AIzaSyBU4nX6mt-rWedXOlnWDoPfMqNXtZmPQjQ",
+  authDomain: "gen-lang-client-0426297362.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-processscoredail-09806b9d-0bc6-4228-8be8-d9bbc32df920",
+  storageBucket: "gen-lang-client-0426297362.firebasestorage.app",
+  messagingSenderId: "727251518687",
+};
+
+const resolvedConfig = firebaseConfigData || defaultFirebaseConfig;
+
 const firebaseConfig = {
-  apiKey: firebaseConfigData.apiKey,
-  authDomain: firebaseConfigData.authDomain,
-  projectId: firebaseConfigData.projectId,
-  storageBucket: firebaseConfigData.storageBucket,
-  messagingSenderId: firebaseConfigData.messagingSenderId,
-  appId: firebaseConfigData.appId,
+  apiKey: resolvedConfig.apiKey || defaultFirebaseConfig.apiKey,
+  authDomain: resolvedConfig.authDomain || defaultFirebaseConfig.authDomain,
+  projectId: resolvedConfig.projectId || defaultFirebaseConfig.projectId,
+  storageBucket: resolvedConfig.storageBucket || defaultFirebaseConfig.storageBucket,
+  messagingSenderId: resolvedConfig.messagingSenderId || defaultFirebaseConfig.messagingSenderId,
+  appId: resolvedConfig.appId || defaultFirebaseConfig.appId,
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
 // Use custom firestore database ID if specified, or default
-export const db: Firestore = (firebaseConfigData.firestoreDatabaseId && firebaseConfigData.firestoreDatabaseId.trim() !== '')
-  ? getFirestore(app, firebaseConfigData.firestoreDatabaseId)
+const customDbId = (resolvedConfig.firestoreDatabaseId && resolvedConfig.firestoreDatabaseId.trim() !== '')
+  ? resolvedConfig.firestoreDatabaseId
+  : defaultFirebaseConfig.firestoreDatabaseId;
+
+export const db: Firestore = customDbId
+  ? getFirestore(app, customDbId)
   : getFirestore(app);
 
 // Firestore Collections & Document Helpers
