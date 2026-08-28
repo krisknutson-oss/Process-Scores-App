@@ -1,0 +1,6 @@
+{
+  "name": "Process Score Daily Checker",
+  "description": "Track and log daily student process scores and learning skills across grades with Firestore database sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
