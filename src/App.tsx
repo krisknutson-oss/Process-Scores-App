@@ -543,39 +543,40 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F6F4EF] text-[#262A2F] font-sans pb-32">
+    <div className="min-h-screen bg-[#F6F5F0] text-[#18191B] font-sans pb-36 selection:bg-[#18191B] selection:text-white">
       {/* Movable Mascot / Helper Character (Controlled with Arrow keys Left, Right, Up, Down) */}
       <MovableMascot />
 
       {/* Main Container */}
-      <div className="max-w-[940px] mx-auto px-4 pt-5 pb-8">
+      <div className="max-w-[980px] mx-auto px-4 sm:px-6 pt-6 pb-12">
         {/* Top Header */}
-        <header className="sticky top-0 z-20 bg-[#F6F4EF]/95 backdrop-blur-xs border-b border-[#DCD7CC] pt-3 pb-3.5 mb-5 transition-all">
-          <div className="flex items-baseline justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2.5">
-              <h1 className="font-serif-fraunces font-semibold text-2xl tracking-tight text-[#262A2F] flex items-center gap-2">
-                <span className="text-[#1F6F6B]">Process Score</span> Daily Checker
+        <header className="sticky top-0 z-20 bg-[#F6F5F0]/95 backdrop-blur-md border-b-2 border-[#18191B] pt-4 pb-4 mb-6 transition-all">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <h1 className="font-serif-fraunces font-black text-2xl sm:text-3xl tracking-tight text-[#18191B] flex items-center gap-2.5">
+                <span className="text-[#1F6F6B] font-black underline decoration-4 decoration-[#18191B]">Process Score</span>
+                <span className="font-extrabold text-[#18191B]">Daily Checker</span>
               </h1>
-              <span className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full bg-[#E4EEEC] text-[#164F4C] border border-[#1F6F6B]/30">
-                <Database className="w-3 h-3 text-[#1F6F6B]" />
-                <span>Firestore Active</span>
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono-jb font-bold px-2.5 py-1 rounded-md bg-[#18191B] text-white border-2 border-[#18191B] bold-shadow-sm">
+                <Database className="w-3 h-3 text-[#5EEAD4]" />
+                <span>FIRESTORE LIVE</span>
               </span>
             </div>
 
             {/* Date Navigator Stamp */}
-            <div className="flex items-center gap-1.5 bg-white border border-[#DCD7CC] rounded-full px-2.5 py-1 shadow-2xs">
+            <div className="flex items-center gap-1 bg-white border-2 border-[#18191B] rounded-lg px-2.5 py-1 bold-shadow-sm">
               <button
                 id="prevDateBtn"
                 onClick={() => shiftDate(-1)}
-                className="p-1 text-[#6B7078] hover:text-[#1F6F6B] rounded-full transition"
+                className="p-1 text-[#18191B] hover:bg-[#F6F5F0] rounded transition cursor-pointer active:scale-95"
                 title="Previous Day"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
+                <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
               </button>
 
-              <label htmlFor="datePickerInput" className="cursor-pointer flex items-center gap-1.5 px-1.5">
-                <Calendar className="w-3.5 h-3.5 text-[#1F6F6B]" />
-                <span className="font-mono-jb text-xs text-[#262A2F] font-medium">{dateDisplay}</span>
+              <label htmlFor="datePickerInput" className="cursor-pointer flex items-center gap-2 px-2">
+                <Calendar className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
+                <span className="font-mono-jb text-xs sm:text-sm text-[#18191B] font-bold tracking-tight">{dateDisplay}</span>
               </label>
               <input
                 id="datePickerInput"
@@ -588,17 +589,17 @@ export default function App() {
               <button
                 id="nextDateBtn"
                 onClick={() => shiftDate(1)}
-                className="p-1 text-[#6B7078] hover:text-[#1F6F6B] rounded-full transition"
+                className="p-1 text-[#18191B] hover:bg-[#F6F5F0] rounded transition cursor-pointer active:scale-95"
                 title="Next Day"
               >
-                <ChevronRight className="w-3.5 h-3.5" />
+                <ChevronRight className="w-4 h-4 stroke-[2.5]" />
               </button>
 
               {selectedDate !== new Date().toISOString().slice(0, 10) && (
                 <button
                   id="todayBtn"
                   onClick={jumpToToday}
-                  className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[#E4EEEC] text-[#164F4C] hover:bg-[#1F6F6B] hover:text-white transition ml-1"
+                  className="text-[10px] uppercase font-black tracking-wider px-2 py-0.5 rounded bg-[#1F6F6B] text-white hover:bg-[#164F4C] transition ml-1 cursor-pointer"
                 >
                   Today
                 </button>
@@ -607,10 +608,10 @@ export default function App() {
           </div>
 
           {/* Controls bar */}
-          <div className="flex items-center gap-2.5 mt-3 flex-wrap">
+          <div className="flex items-center gap-3 mt-4 flex-wrap">
             <div className="flex items-center gap-1.5">
-              <label htmlFor="teacherNameInput" className="text-xs font-semibold text-[#6B7078] uppercase tracking-wider">
-                Teacher
+              <label htmlFor="teacherNameInput" className="text-[11px] font-black text-[#18191B] uppercase tracking-wider">
+                Teacher:
               </label>
               <input
                 id="teacherNameInput"
@@ -622,22 +623,22 @@ export default function App() {
                   localStorage.setItem('config:teacherName', e.target.value);
                 }}
                 onBlur={() => saveAppConfigToFirestore({ teacherName })}
-                className="font-medium text-sm px-3 py-1.5 rounded-lg border border-[#DCD7CC] bg-white text-[#262A2F] w-36 focus:outline-2 focus:outline-[#1F6F6B] shadow-2xs transition"
+                className="font-bold text-sm px-3 py-1.5 rounded-lg border-2 border-[#18191B] bg-white text-[#18191B] w-40 focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
               />
             </div>
 
             <div className="flex items-center gap-1.5">
-              <label htmlFor="gradeSelect" className="text-xs font-semibold text-[#6B7078] uppercase tracking-wider">
-                Grade
+              <label htmlFor="gradeSelect" className="text-[11px] font-black text-[#18191B] uppercase tracking-wider">
+                Grade:
               </label>
               <select
                 id="gradeSelect"
                 value={currentGrade}
                 onChange={(e) => setCurrentGrade(parseInt(e.target.value, 10))}
-                className="font-semibold text-sm px-3 py-1.5 pr-8 rounded-lg border border-[#DCD7CC] bg-white text-[#262A2F] cursor-pointer focus:outline-2 focus:outline-[#1F6F6B] shadow-2xs transition"
+                className="font-black text-sm px-3.5 py-1.5 pr-8 rounded-lg border-2 border-[#18191B] bg-white text-[#18191B] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
               >
                 {GRADES.map((g) => (
-                  <option key={g} value={g}>
+                  <option key={g} value={g} className="font-bold">
                     Grade {g}
                   </option>
                 ))}
@@ -647,30 +648,30 @@ export default function App() {
             <button
               id="clearAllBtn"
               onClick={handleClearAllToThree}
-              className="px-3 py-1.5 rounded-lg border border-[#DCD7CC] bg-white hover:border-[#B5583D] hover:text-[#B5583D] text-[#6B7078] font-semibold text-xs transition shadow-2xs cursor-pointer flex items-center gap-1"
+              className="px-3.5 py-1.5 rounded-lg border-2 border-[#18191B] bg-white hover:bg-[#FBEBE7] hover:text-[#D94826] text-[#18191B] font-bold text-xs transition bold-shadow-sm hover:translate-x-0.5 hover:translate-y-0.5 active:translate-x-0 active:translate-y-0 cursor-pointer flex items-center gap-1.5"
               title="Reset every student in this grade back to 3"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Clear all &amp; reset to 3</span>
+              <RotateCcw className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Reset all to 3</span>
             </button>
 
             <button
               id="gearBtn"
               onClick={() => setSettingsOpen(!settingsOpen)}
-              className={`p-2 rounded-lg border border-[#DCD7CC] bg-white hover:text-[#262A2F] text-[#6B7078] transition shadow-2xs cursor-pointer ${
-                settingsOpen ? 'bg-[#E4EEEC] text-[#164F4C] border-[#1F6F6B]' : ''
+              className={`p-2 rounded-lg border-2 border-[#18191B] bg-white hover:bg-[#E8F2F0] text-[#18191B] transition bold-shadow-sm cursor-pointer ${
+                settingsOpen ? 'bg-[#18191B] text-white border-[#18191B]' : ''
               }`}
               title="Settings & Integrations"
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-4 h-4 stroke-[2.5]" />
             </button>
 
             {/* Progress indicator */}
-            <div className="ml-auto flex items-center gap-2 text-xs text-[#6B7078] font-semibold">
-              <span id="progressText">
-                {scoredCount} / {roster.length} scored
+            <div className="ml-auto flex items-center gap-3 text-xs text-[#18191B] font-extrabold bg-white px-3 py-1.5 rounded-lg border-2 border-[#18191B] bold-shadow-sm">
+              <span id="progressText" className="font-mono-jb font-bold text-xs">
+                {scoredCount} / {roster.length} SCORED
               </span>
-              <div className="w-24 h-1.5 bg-[#DCD7CC] rounded-full overflow-hidden">
+              <div className="w-24 h-2.5 bg-[#E4DFC8] rounded-full overflow-hidden border border-[#18191B]">
                 <div
                   id="progressFill"
                   className="h-full bg-[#1F6F6B] transition-all duration-300 ease-out"
@@ -684,30 +685,30 @@ export default function App() {
           {settingsOpen && (
             <div
               id="settingsPanel"
-              className="mt-3 p-4 border border-dashed border-[#DCD7CC] rounded-xl bg-white shadow-xs animate-fade-in space-y-3"
+              className="mt-4 p-5 border-2 border-[#18191B] rounded-xl bg-white bold-shadow space-y-4 animate-fade-in"
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="font-semibold text-sm text-[#262A2F] flex items-center gap-1.5">
-                    <Database className="w-4 h-4 text-[#1F6F6B]" />
-                    <span>Firestore Database &amp; Sync Settings</span>
+                  <h3 className="font-black text-base text-[#18191B] flex items-center gap-2">
+                    <Database className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
+                    <span>Firestore Database &amp; Cloud Settings</span>
                   </h3>
-                  <p className="text-xs text-[#6B7078] mt-0.5 leading-relaxed">
+                  <p className="text-xs text-[#5C626A] mt-1 font-medium leading-relaxed max-w-2xl">
                     Student rosters, daily score checks, and multi-day averages are synced in real time to your cloud Firestore database. You can also connect a Google Apps Script Web App URL for Google Sheet synchronization.
                   </p>
                 </div>
                 <button
                   id="closeSettingsBtn"
                   onClick={() => setSettingsOpen(false)}
-                  className="text-[#6B7078] hover:text-[#262A2F] text-xs font-semibold p-1"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg border-2 border-[#18191B] hover:bg-[#18191B] hover:text-white font-black text-xs transition cursor-pointer"
                 >
                   ✕
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                 <div>
-                  <label htmlFor="webAppUrlInput" className="block text-[11px] font-semibold text-[#6B7078] uppercase mb-1">
+                  <label htmlFor="webAppUrlInput" className="block text-[11px] font-black text-[#18191B] uppercase tracking-wider mb-1">
                     Google Apps Script Web App URL (Optional)
                   </label>
                   <div className="flex gap-2">
@@ -717,7 +718,7 @@ export default function App() {
                       value={webAppUrl}
                       onChange={(e) => setWebAppUrl(e.target.value)}
                       placeholder="https://script.google.com/macros/s/.../exec"
-                      className="flex-1 px-3 py-1.5 border border-[#DCD7CC] rounded-lg font-mono-jb text-xs bg-[#F6F4EF] focus:outline-2 focus:outline-[#1F6F6B]"
+                      className="flex-1 px-3 py-2 border-2 border-[#18191B] rounded-lg font-mono-jb text-xs bg-[#F6F5F0] focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] font-bold"
                     />
                     <button
                       id="saveUrlBtn"
@@ -727,29 +728,29 @@ export default function App() {
                         setSaveStatus('Settings saved to Firestore.');
                         setStatusType('ok');
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-[#1F6F6B] hover:bg-[#164F4C] text-white font-semibold text-xs transition shadow-2xs cursor-pointer"
+                      className="px-4 py-2 rounded-lg bg-[#18191B] hover:bg-[#1F6F6B] text-white font-black text-xs transition bold-shadow-sm cursor-pointer"
                     >
                       Save
                     </button>
                   </div>
                 </div>
 
-                <div className="flex items-end gap-2">
+                <div className="flex items-end gap-2.5">
                   <button
                     id="exportCsvBtn"
                     onClick={handleExportCSV}
-                    className="flex-1 px-3 py-2 rounded-lg border border-[#DCD7CC] bg-[#F6F4EF] hover:bg-[#E4EEEC] text-[#164F4C] font-semibold text-xs transition flex items-center justify-center gap-1.5"
+                    className="flex-1 px-4 py-2.5 rounded-lg border-2 border-[#18191B] bg-[#E8F2F0] hover:bg-[#1F6F6B] hover:text-white text-[#18191B] font-bold text-xs transition bold-shadow-sm flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <Download className="w-3.5 h-3.5 text-[#1F6F6B]" />
+                    <Download className="w-4 h-4 stroke-[2.5]" />
                     <span>Export CSV Summary</span>
                   </button>
 
                   <button
                     id="bulkAddToggleBtn"
                     onClick={() => setShowBulkAdd(!showBulkAdd)}
-                    className="flex-1 px-3 py-2 rounded-lg border border-[#DCD7CC] bg-[#F6F4EF] hover:bg-[#E4EEEC] text-[#164F4C] font-semibold text-xs transition flex items-center justify-center gap-1.5"
+                    className="flex-1 px-4 py-2.5 rounded-lg border-2 border-[#18191B] bg-white hover:bg-[#F6F5F0] text-[#18191B] font-bold text-xs transition bold-shadow-sm flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <Users className="w-3.5 h-3.5 text-[#1F6F6B]" />
+                    <Users className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
                     <span>Bulk Add Names</span>
                   </button>
                 </div>
@@ -757,8 +758,8 @@ export default function App() {
 
               {/* Bulk add textarea */}
               {showBulkAdd && (
-                <div className="pt-2 border-t border-[#DCD7CC] space-y-2">
-                  <label htmlFor="bulkTextarea" className="text-xs font-semibold text-[#262A2F]">
+                <div className="pt-3 border-t-2 border-[#18191B] space-y-2">
+                  <label htmlFor="bulkTextarea" className="text-xs font-black text-[#18191B] uppercase tracking-wider">
                     Paste student names (one per line, e.g. "Last, First"):
                   </label>
                   <textarea
@@ -767,20 +768,20 @@ export default function App() {
                     value={bulkInput}
                     onChange={(e) => setBulkInput(e.target.value)}
                     placeholder="Smith, John&#10;Doe, Jane&#10;Taylor, Sam"
-                    className="w-full p-2.5 text-xs font-mono-jb border border-[#DCD7CC] rounded-lg bg-[#F6F4EF] focus:outline-2 focus:outline-[#1F6F6B]"
+                    className="w-full p-3 text-xs font-mono-jb font-bold border-2 border-[#18191B] rounded-lg bg-[#F6F5F0] focus:outline-none focus:ring-2 focus:ring-[#1F6F6B]"
                   />
-                  <div className="flex justify-end gap-2">
+                  <div className="flex justify-end gap-2 pt-1">
                     <button
                       id="cancelBulkBtn"
                       onClick={() => setShowBulkAdd(false)}
-                      className="px-3 py-1 text-xs font-semibold text-[#6B7078] hover:text-[#262A2F]"
+                      className="px-3 py-1.5 text-xs font-bold text-[#5C626A] hover:text-[#18191B] cursor-pointer"
                     >
                       Cancel
                     </button>
                     <button
                       id="importBulkBtn"
                       onClick={handleBulkAdd}
-                      className="px-3 py-1 bg-[#1F6F6B] text-white rounded-md text-xs font-semibold hover:bg-[#164F4C]"
+                      className="px-4 py-1.5 bg-[#18191B] text-white rounded-lg text-xs font-black hover:bg-[#1F6F6B] border-2 border-[#18191B] bold-shadow-sm cursor-pointer transition"
                     >
                       Add to Grade {currentGrade} Roster
                     </button>
@@ -792,23 +793,23 @@ export default function App() {
         </header>
 
         {/* Add Student & Sync Row */}
-        <div className="flex gap-2 mb-4 flex-wrap">
-          <form onSubmit={handleAddStudent} className="flex-1 min-w-[240px] flex gap-2">
+        <div className="flex gap-3 mb-5 flex-wrap">
+          <form onSubmit={handleAddStudent} className="flex-1 min-w-[260px] flex gap-2">
             <input
               id="newStudentInput"
               type="text"
               value={newStudentName}
               onChange={(e) => setNewStudentName(e.target.value)}
-              placeholder="Add a student to this grade (Last, First)"
-              className="flex-1 px-3.5 py-2 border border-[#DCD7CC] rounded-lg text-sm bg-white focus:outline-2 focus:outline-[#1F6F6B] shadow-2xs transition"
+              placeholder="Add student to this grade (e.g. Last, First)"
+              className="flex-1 px-4 py-2.5 border-2 border-[#18191B] rounded-lg text-sm bg-white font-bold placeholder:text-[#5C626A]/70 focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
             />
             <button
               id="addStudentBtn"
               type="submit"
-              className="px-4 py-2 rounded-lg border border-[#1F6F6B] bg-white text-[#164F4C] hover:bg-[#E4EEEC] font-semibold text-xs transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+              className="px-5 py-2.5 rounded-lg border-2 border-[#18191B] bg-[#18191B] text-white hover:bg-[#1F6F6B] hover:border-[#1F6F6B] font-black text-xs uppercase tracking-wider transition bold-shadow-sm cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5"
             >
-              <UserPlus className="w-3.5 h-3.5 text-[#1F6F6B]" />
-              <span>Add student</span>
+              <UserPlus className="w-4 h-4 stroke-[2.5]" />
+              <span>Add Student</span>
             </button>
           </form>
 
@@ -817,46 +818,52 @@ export default function App() {
               id="importBtn"
               onClick={handleSyncWithSheet}
               disabled={isSyncing}
-              className="px-3.5 py-2 rounded-lg border border-[#6B7078] hover:border-[#1F6F6B] hover:text-[#164F4C] hover:bg-[#E4EEEC] text-[#6B7078] font-semibold text-xs transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+              className="px-4 py-2.5 rounded-lg border-2 border-[#18191B] bg-white hover:bg-[#E8F2F0] text-[#18191B] font-black text-xs transition bold-shadow-sm cursor-pointer flex items-center gap-2"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>{isSyncing ? 'Syncing…' : 'Sync roster from Sheet'}</span>
+              <FileSpreadsheet className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
+              <span>{isSyncing ? 'Syncing…' : 'Sync from Sheet'}</span>
             </button>
           )}
         </div>
 
         {/* Class Averages Bar */}
         {roster.length > 0 && (
-          <div className="mb-4 bg-white border border-[#DCD7CC] rounded-xl px-4 py-2.5 flex items-center justify-between gap-4 flex-wrap shadow-2xs">
-            <div className="flex items-center gap-2">
-              <Award className="w-4 h-4 text-[#1F6F6B]" />
-              <span className="font-semibold text-xs text-[#262A2F]">Grade {currentGrade} Daily Class Average:</span>
+          <div className="mb-6 bg-white border-2 border-[#18191B] rounded-xl px-5 py-3.5 flex items-center justify-between gap-4 flex-wrap bold-shadow">
+            <div className="flex items-center gap-2.5">
+              <Award className="w-5 h-5 text-[#1F6F6B] stroke-[2.5]" />
+              <span className="font-black text-sm uppercase tracking-wider text-[#18191B]">Grade {currentGrade} Class Daily Average:</span>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5 text-xs font-mono-jb">
-                <span className="text-[#6B7078] uppercase text-[10px] font-bold">Engagement:</span>
-                <span className="font-bold text-[#164F4C] bg-[#E4EEEC] px-1.5 py-0.5 rounded">{classAverages.engagement}</span>
+            <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
+              <div className="flex items-center gap-2 text-xs font-mono-jb">
+                <span className="text-[#5C626A] uppercase text-[10px] font-black tracking-wider">Engagement</span>
+                <span className="font-black text-sm text-[#18191B] bg-[#E8F2F0] border-2 border-[#18191B] px-2 py-0.5 rounded-md bold-shadow-sm">
+                  {classAverages.engagement}
+                </span>
               </div>
-              <div className="flex items-center gap-1.5 text-xs font-mono-jb">
-                <span className="text-[#6B7078] uppercase text-[10px] font-bold">Responsibility:</span>
-                <span className="font-bold text-[#164F4C] bg-[#E4EEEC] px-1.5 py-0.5 rounded">{classAverages.responsibility}</span>
+              <div className="flex items-center gap-2 text-xs font-mono-jb">
+                <span className="text-[#5C626A] uppercase text-[10px] font-black tracking-wider">Responsibility</span>
+                <span className="font-black text-sm text-[#18191B] bg-[#E8F2F0] border-2 border-[#18191B] px-2 py-0.5 rounded-md bold-shadow-sm">
+                  {classAverages.responsibility}
+                </span>
               </div>
-              <div className="flex items-center gap-1.5 text-xs font-mono-jb">
-                <span className="text-[#6B7078] uppercase text-[10px] font-bold">Respect:</span>
-                <span className="font-bold text-[#164F4C] bg-[#E4EEEC] px-1.5 py-0.5 rounded">{classAverages.respect}</span>
+              <div className="flex items-center gap-2 text-xs font-mono-jb">
+                <span className="text-[#5C626A] uppercase text-[10px] font-black tracking-wider">Respect</span>
+                <span className="font-black text-sm text-[#18191B] bg-[#E8F2F0] border-2 border-[#18191B] px-2 py-0.5 rounded-md bold-shadow-sm">
+                  {classAverages.respect}
+                </span>
               </div>
             </div>
           </div>
         )}
 
         {/* Roster Student List */}
-        <div id="roster" className="flex flex-col gap-2.5">
+        <div id="roster" className="flex flex-col gap-3">
           {roster.length === 0 ? (
-            <div className="py-12 px-6 text-center text-[#6B7078] border border-dashed border-[#DCD7CC] rounded-2xl bg-white shadow-xs">
-              <strong className="block text-[#262A2F] font-serif-fraunces text-lg mb-1 font-semibold">
+            <div className="py-14 px-6 text-center text-[#5C626A] border-2 border-dashed border-[#18191B] rounded-2xl bg-white bold-shadow">
+              <strong className="block text-[#18191B] font-serif-fraunces text-xl mb-1.5 font-black">
                 No students in Grade {currentGrade} yet
               </strong>
-              <p className="text-sm">Add students above or paste a class list in settings to start tracking this grade.</p>
+              <p className="text-sm font-medium">Add students above or paste a class list in settings to start tracking this grade.</p>
             </div>
           ) : (
             roster.map((name) => {
@@ -867,34 +874,36 @@ export default function App() {
                 <div
                   key={name}
                   data-name={name}
-                  className={`bg-white border rounded-xl p-3 px-3.5 flex items-center gap-3.5 flex-wrap transition-all shadow-2xs ${
-                    complete ? 'border-[#1F6F6B] ring-1 ring-[#1F6F6B]/30' : 'border-[#DCD7CC]'
+                  className={`bg-white border-2 rounded-xl p-3.5 sm:p-4 flex items-center gap-4 flex-wrap transition-all ${
+                    complete
+                      ? 'border-[#18191B] bg-[#FAFAF7] bold-shadow'
+                      : 'border-[#18191B] bold-shadow-sm'
                   }`}
                 >
                   {/* Student Name and Actions */}
-                  <div className="min-w-[160px] flex-shrink-0 flex items-center gap-2">
+                  <div className="min-w-[170px] flex-shrink-0 flex items-center gap-2.5">
                     <span
-                      className={`w-2 h-2 rounded-full flex-shrink-0 transition-colors ${
-                        complete ? 'bg-[#1F6F6B]' : 'bg-[#DCD7CC]'
+                      className={`w-3 h-3 rounded-full flex-shrink-0 border border-[#18191B] transition-colors ${
+                        complete ? 'bg-[#1F6F6B]' : 'bg-[#E4DFC8]'
                       }`}
                     />
-                    <span className="font-semibold text-[14px] text-[#262A2F] truncate max-w-[170px]" title={name}>
+                    <span className="font-black text-[15px] text-[#18191B] truncate max-w-[170px]" title={name}>
                       {name}
                     </span>
 
                     <button
                       id={`clearBtn-${name.replace(/\s+/g, '_')}`}
                       onClick={() => handleClearStudent(name)}
-                      className="text-[10px] font-bold uppercase tracking-wider text-[#6B7078] hover:text-[#164F4C] hover:bg-[#E4EEEC] px-1.5 py-0.5 rounded opacity-60 hover:opacity-100 transition cursor-pointer"
+                      className="text-[10px] font-black uppercase tracking-wider text-[#5C626A] hover:text-[#18191B] hover:bg-[#E8F2F0] px-2 py-0.5 rounded border border-transparent hover:border-[#18191B] transition cursor-pointer"
                       title="Reset this student's scores to 3"
                     >
-                      Clear
+                      Reset
                     </button>
 
                     <button
                       id={`removeBtn-${name.replace(/\s+/g, '_')}`}
                       onClick={() => handleRemoveStudent(name)}
-                      className="text-xs text-[#6B7078] hover:text-[#B5583D] opacity-40 hover:opacity-100 p-0.5 transition cursor-pointer"
+                      className="text-xs text-[#5C626A] hover:text-[#D94826] font-black p-1 hover:bg-[#FBEBE7] rounded transition cursor-pointer"
                       title="Remove student"
                     >
                       ✕
@@ -902,13 +911,13 @@ export default function App() {
                   </div>
 
                   {/* Rating Category Code Buttons */}
-                  <div className="flex gap-4 flex-wrap flex-1 min-w-[280px]">
+                  <div className="flex gap-4 sm:gap-6 flex-wrap flex-1 min-w-[300px]">
                     {CATEGORIES.map((cat) => (
-                      <div key={cat} className="flex flex-col gap-1">
-                        <span className="text-[10px] uppercase tracking-wider text-[#6B7078] font-bold">
+                      <div key={cat} className="flex flex-col gap-1.5">
+                        <span className="text-[10px] uppercase tracking-wider text-[#18191B] font-black">
                           {CATEGORY_LABELS[cat]}
                         </span>
-                        <div className="flex gap-1">
+                        <div className="flex gap-1.5">
                           {CODES.map((code) => {
                             const isActive = s[cat] === code;
                             return (
@@ -917,10 +926,10 @@ export default function App() {
                                 id={`scoreBtn-${name.replace(/\s+/g, '_')}-${cat}-${code}`}
                                 type="button"
                                 onClick={() => handleScoreClick(name, cat, code)}
-                                className={`w-8 h-7.5 rounded-md border font-mono-jb text-xs font-semibold transition-all cursor-pointer ${
+                                className={`w-8 h-8 rounded-lg border-2 font-mono-jb text-xs font-black transition-all cursor-pointer ${
                                   isActive
-                                    ? 'bg-[#1F6F6B] border-[#1F6F6B] text-white shadow-2xs'
-                                    : 'bg-[#F6F4EF] border-[#DCD7CC] text-[#6B7078] hover:border-[#1F6F6B] hover:text-[#1F6F6B]'
+                                    ? 'bg-[#18191B] border-[#18191B] text-white bold-shadow-sm -translate-y-0.5'
+                                    : 'bg-[#F6F5F0] border-[#18191B]/40 text-[#18191B] hover:border-[#18191B] hover:bg-white'
                                 }`}
                               >
                                 {code}
@@ -933,7 +942,7 @@ export default function App() {
                   </div>
 
                   {/* Multi-day Category Averages */}
-                  <div className="flex gap-1.5 ml-auto flex-shrink-0 pl-3 border-l border-[#DCD7CC]">
+                  <div className="flex gap-2 ml-auto flex-shrink-0 pl-4 border-l-2 border-[#18191B]">
                     {CATEGORIES.map((cat) => {
                       const avg = computeStudentCategoryAverage(name, cat);
                       const isEmpty = avg === null;
@@ -941,22 +950,20 @@ export default function App() {
                       return (
                         <div
                           key={cat}
-                          className={`flex flex-col items-center justify-center w-14 py-1 px-1 rounded-lg border text-center transition-all ${
+                          className={`flex flex-col items-center justify-center w-14 py-1 px-1 rounded-lg border-2 text-center transition-all ${
                             isEmpty
-                              ? 'bg-[#F6F4EF] border-[#DCD7CC]'
-                              : 'bg-[#E4EEEC] border-[#1F6F6B]/30'
+                              ? 'bg-[#F6F5F0] border-[#18191B]/30'
+                              : 'bg-[#E8F2F0] border-[#18191B] bold-shadow-sm'
                           }`}
                         >
                           <span
-                            className={`text-[8.5px] uppercase tracking-wider font-bold leading-tight ${
-                              isEmpty ? 'text-[#6B7078]' : 'text-[#164F4C]'
-                            }`}
+                            className="text-[9px] uppercase tracking-wider font-black leading-tight text-[#18191B]"
                           >
                             {CATEGORY_LABELS[cat].slice(0, 4)}
                           </span>
                           <span
-                            className={`font-mono-jb text-[13px] font-bold leading-snug mt-0.5 ${
-                              isEmpty ? 'text-[#6B7078]' : 'text-[#164F4C]'
+                            className={`font-mono-jb text-[13px] font-black leading-snug mt-0.5 ${
+                              isEmpty ? 'text-[#5C626A]' : 'text-[#18191B]'
                             }`}
                           >
                             {avg === null ? '—' : avg.toFixed(1)}
@@ -972,47 +979,47 @@ export default function App() {
         </div>
 
         {/* Legend / Rubric explanation */}
-        <div className="mt-8 p-4 bg-white border border-[#DCD7CC] rounded-xl text-xs text-[#6B7078] space-y-1.5 shadow-2xs">
-          <div className="font-semibold text-[#262A2F] flex items-center gap-1.5">
-            <BookOpen className="w-3.5 h-3.5 text-[#1F6F6B]" />
+        <div className="mt-10 p-5 bg-white border-2 border-[#18191B] rounded-xl text-xs text-[#18191B] space-y-2 bold-shadow">
+          <div className="font-black text-sm text-[#18191B] uppercase tracking-wider flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
             <span>Process Score Rubric Scale</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono-jb text-[11px]">
-            <div className="p-1.5 rounded bg-[#F6F4EF] border border-[#DCD7CC]">
-              <strong className="text-[#164F4C]">4:</strong> Exceeding expectations
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1 font-mono-jb text-[11px]">
+            <div className="p-2 rounded-lg bg-[#F6F5F0] border-2 border-[#18191B]">
+              <strong className="text-[#18191B] font-black text-xs mr-1 bg-[#E8F2F0] px-1 py-0.5 rounded border border-[#18191B]">4:</strong> Exceeding expectations
             </div>
-            <div className="p-1.5 rounded bg-[#F6F4EF] border border-[#DCD7CC]">
-              <strong className="text-[#164F4C]">3:</strong> Consistent &amp; meeting goals
+            <div className="p-2 rounded-lg bg-[#F6F5F0] border-2 border-[#18191B]">
+              <strong className="text-[#18191B] font-black text-xs mr-1 bg-[#E8F2F0] px-1 py-0.5 rounded border border-[#18191B]">3:</strong> Consistent &amp; on goal
             </div>
-            <div className="p-1.5 rounded bg-[#F6F4EF] border border-[#DCD7CC]">
-              <strong className="text-[#164F4C]">2:</strong> Developing / partial support
+            <div className="p-2 rounded-lg bg-[#F6F5F0] border-2 border-[#18191B]">
+              <strong className="text-[#18191B] font-black text-xs mr-1 bg-[#E8F2F0] px-1 py-0.5 rounded border border-[#18191B]">2:</strong> Developing / partial
             </div>
-            <div className="p-1.5 rounded bg-[#F6F4EF] border border-[#DCD7CC]">
-              <strong className="text-[#B5583D]">1:</strong> Direct intervention required
+            <div className="p-2 rounded-lg bg-[#FBEBE7] border-2 border-[#D94826]">
+              <strong className="text-[#D94826] font-black text-xs mr-1 bg-white px-1 py-0.5 rounded border border-[#D94826]">1:</strong> Direct support needed
             </div>
           </div>
         </div>
       </div>
 
       {/* Bottom Sticky Save Bar */}
-      <footer className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-xs border-t border-[#DCD7CC] py-3 px-4 shadow-lg">
-        <div className="max-w-[940px] mx-auto flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+      <footer className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t-2 border-[#18191B] py-3.5 px-4 sm:px-6 shadow-2xl">
+        <div className="max-w-[980px] mx-auto flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-2.5 flex-1 min-w-[220px]">
             {statusType === 'ok' ? (
-              <CheckCircle2 className="w-4 h-4 text-[#1F6F6B] flex-shrink-0" />
+              <CheckCircle2 className="w-5 h-5 text-[#1F6F6B] stroke-[2.5] flex-shrink-0" />
             ) : statusType === 'err' ? (
-              <AlertCircle className="w-4 h-4 text-[#B5583D] flex-shrink-0" />
+              <AlertCircle className="w-5 h-5 text-[#D94826] stroke-[2.5] flex-shrink-0" />
             ) : (
-              <Cloud className="w-4 h-4 text-[#6B7078] flex-shrink-0" />
+              <Cloud className="w-5 h-5 text-[#18191B] stroke-[2.5] flex-shrink-0" />
             )}
             <span
               id="saveStatus"
-              className={`text-xs font-medium ${
+              className={`text-xs sm:text-sm font-bold ${
                 statusType === 'ok'
-                  ? 'text-[#164F4C] font-semibold'
+                  ? 'text-[#1F6F6B]'
                   : statusType === 'err'
-                  ? 'text-[#B5583D] font-semibold'
-                  : 'text-[#6B7078]'
+                  ? 'text-[#D94826]'
+                  : 'text-[#18191B]'
               }`}
             >
               {saveStatus}
@@ -1024,10 +1031,10 @@ export default function App() {
               id="submitBtn"
               onClick={handleManualSave}
               disabled={isSaving}
-              className="px-5 py-2.5 rounded-lg bg-[#1F6F6B] hover:bg-[#164F4C] text-white font-bold text-xs transition shadow-sm hover:shadow active:scale-98 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+              className="px-6 py-2.5 rounded-lg bg-[#18191B] hover:bg-[#1F6F6B] text-white font-black text-xs uppercase tracking-wider transition bold-shadow border-2 border-[#18191B] hover:border-[#1F6F6B] active:translate-x-0.5 active:translate-y-0.5 disabled:opacity-50 cursor-pointer flex items-center gap-2"
             >
-              <Database className="w-3.5 h-3.5" />
-              <span>{isSaving ? 'Saving to Firestore…' : "Save today's scores to Firestore"}</span>
+              <Database className="w-4 h-4 stroke-[2.5] text-[#5EEAD4]" />
+              <span>{isSaving ? 'Saving to Firestore…' : "Save Today's Scores"}</span>
             </button>
           </div>
         </div>

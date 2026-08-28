@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --paper: #F6F4EF;
+  --paper: #F6F5F0;
   --paper-raised: #FFFFFF;
-  --ink: #262A2F;
-  --ink-soft: #6B7078;
-  --line: #DCD7CC;
+  --ink: #18191B;
+  --ink-soft: #5C626A;
+  --line: #262A2F;
   --teal: #1F6F6B;
   --teal-deep: #164F4C;
-  --teal-wash: #E4EEEC;
-  --clay: #B5583D;
-  --focus: #1F6F6B;
+  --teal-wash: #E8F2F0;
+  --clay: #D94826;
+  --focus: #18191B;
 }
 
 body {
@@ -29,18 +29,33 @@ body {
   font-family: 'JetBrains Mono', monospace;
 }
 
+/* Bold Typography Theme Accents */
+.bold-shadow-sm {
+  box-shadow: 2px 2px 0px 0px #18191B;
+}
+
+.bold-shadow {
+  box-shadow: 3px 3px 0px 0px #18191B;
+}
+
+.bold-shadow-lg {
+  box-shadow: 5px 5px 0px 0px #18191B;
+}
+
 /* Custom scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: var(--paper);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border-radius: 3px;
+  background: #C4BFB4;
+  border-radius: 4px;
+  border: 2px solid var(--paper);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--ink-soft);
+  background: #18191B;
 }
+
