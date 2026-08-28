@@ -5,11 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Process Score Daily Checker</title>
     <meta name="description" content="Process Score Daily Checker - Learning Skills Tracker with Firestore backend" />
+    <!-- Extension collision protection script -->
+    <script>
+      (function() {
+        window.addEventListener('error', function(event) {
+          if (event && event.message && (
+            event.message.indexOf('ethereum') !== -1 ||
+            event.message.indexOf('Cannot redefine property') !== -1 ||
+            (event.filename && (event.filename.indexOf('chrome-extension') !== -1 || event.filename.indexOf('moz-extension') !== -1))
+          )) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+        window.addEventListener('unhandledrejection', function(event) {
+          if (event && event.reason && String(event.reason).indexOf('ethereum') !== -1) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-    <meta property="og:title" content="My Google AI Studio App" />
-    <meta property="og:description" content="An application built with Google AI Studio." />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,900&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <meta property="og:title" content="Process Score Daily Checker" />
+    <meta property="og:description" content="Daily Process Score Checker with Firestore backend" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
   </head>
