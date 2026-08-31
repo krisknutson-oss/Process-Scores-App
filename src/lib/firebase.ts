@@ -29,38 +29,30 @@ import type {
   TeacherProfile
 } from '../types';
 
-import firebaseConfigData from '../../firebase-applet-config.json';
-
-const defaultFirebaseConfig = {
+// Hardcoded verified configuration so GitHub Actions never fails on missing external files
+const firebaseConfig = {
   projectId: "gen-lang-client-0426297362",
   appId: "1:727251518687:web:12d26294db95479c4dd56a",
   apiKey: "AIzaSyBU4nX6mt-rWedXOlnWDoPfMqNXtZmPQjQ",
   authDomain: "gen-lang-client-0426297362.firebaseapp.com",
-  firestoreDatabaseId: "ai-studio-processscoredail-09806b9d-0bc6-4228-8be8-d9bbc32df920",
   storageBucket: "gen-lang-client-0426297362.firebasestorage.app",
   messagingSenderId: "727251518687",
 };
 
-const resolvedConfig = firebaseConfigData || defaultFirebaseConfig;
+const firestoreDatabaseId = "ai-studio-processscoredail-09806b9d-0bc6-4228-8be8-d9bbc32df920";
 
-const firebaseConfig = {
-  apiKey: resolvedConfig.apiKey || defaultFirebaseConfig.apiKey,
-  authDomain: resolvedConfig.authDomain || defaultFirebaseConfig.authDomain,
-  projectId: resolvedConfig.projectId || defaultFirebaseConfig.projectId,
-  storageBucket: resolvedConfig.storageBucket || defaultFirebaseConfig.storageBucket,
-  messagingSenderId: resolvedConfig.messagingSenderId || defaultFirebaseConfig.messagingSenderId,
-  appId: resolvedConfig.appId || defaultFirebaseConfig.appId,
-};
+let app: any;
+try {
+  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+} catch (e) {
+  console.error("Firebase init fallback:", e);
+  app = getApps()[0] || initializeApp(firebaseConfig);
+}
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+export { app };
 
-// Use custom firestore database ID if specified, or default
-const customDbId = (resolvedConfig.firestoreDatabaseId && resolvedConfig.firestoreDatabaseId.trim() !== '')
-  ? resolvedConfig.firestoreDatabaseId
-  : defaultFirebaseConfig.firestoreDatabaseId;
-
-export const db: Firestore = customDbId
-  ? getFirestore(app, customDbId)
+export const db: Firestore = firestoreDatabaseId
+  ? getFirestore(app, firestoreDatabaseId)
   : getFirestore(app);
 
 export const auth: Auth = getAuth(app);
@@ -78,7 +70,6 @@ export async function signInWithGoogle(): Promise<User | null> {
     }
     return result.user;
   } catch (error: any) {
-    // Suppress popup cancellation or blocked popup warnings gracefully
     if (error?.code !== 'auth/popup-closed-by-user' && error?.code !== 'auth/cancelled-popup-request') {
       console.error('Sign-in error:', error);
     }
