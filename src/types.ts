@@ -24,6 +24,15 @@ export interface GradeHistoryState {
   };
 }
 
+export interface TeacherProfile {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface DailyLogDoc {
   id?: string;
   grade: number;

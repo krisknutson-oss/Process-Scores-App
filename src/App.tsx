@@ -4,7 +4,6 @@ import {
   UserPlus,
   RotateCcw,
   Cloud,
-  CloudCheck,
   Calendar,
   ChevronLeft,
   ChevronRight,
@@ -13,15 +12,22 @@ import {
   Download,
   CheckCircle2,
   AlertCircle,
-  HelpCircle,
   Users,
-  Sparkles,
   Award,
-  BookOpen
+  BookOpen,
+  LogOut,
+  LogIn,
+  ShieldCheck,
+  Lock,
+  Sparkles
 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 
 import type { CategoryKey, ScoreValue, ScoresState, GradeHistoryState } from './types';
 import {
+  signInWithGoogle,
+  logOut,
+  onTeacherAuthChange,
   getRosterFromFirestore,
   saveRosterToFirestore,
   getDailyScoresFromFirestore,
@@ -42,7 +48,7 @@ const CATEGORY_LABELS: Record<CategoryKey, string> = {
 };
 const CODES: ScoreValue[] = ['4', '3', '2', '1'];
 
-// Default starter roster per grade if empty
+// Default starter roster per grade for new teacher accounts
 const DEFAULT_INITIAL_ROSTERS: Record<number, string[]> = {
   6: ['Adams, Lucas', 'Baker, Chloe', 'Chen, Ethan', 'Davis, Maya', 'Evans, Noah'],
   7: ['Garcia, Sofia', 'Hall, Oliver', 'Ito, Ren', 'Johnson, Liam', 'Kim, Min-seo'],
@@ -54,6 +60,13 @@ const DEFAULT_INITIAL_ROSTERS: Record<number, string[]> = {
 };
 
 export default function App() {
+  // Teacher Authentication state
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // App & Grading State
   const [currentGrade, setCurrentGrade] = useState<number>(8);
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [teacherName, setTeacherName] = useState<string>('');
@@ -68,18 +81,33 @@ export default function App() {
   const [showBulkAdd, setShowBulkAdd] = useState<boolean>(false);
   
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
-  const [historyDrawerOpen, setHistoryDrawerOpen] = useState<boolean>(false);
   const [loggedDates, setLoggedDates] = useState<{ date: string; dateDisplay: string; updatedAt: number }[]>([]);
   
   const [saveStatus, setSaveStatus] = useState<string>('Scores sync to Firestore as you grade.');
   const [statusType, setStatusType] = useState<'info' | 'ok' | 'err'>('info');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [isFirestoreConnected, setIsFirestoreConnected] = useState<boolean>(true);
 
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Formatted date displays
+  // Subscribe to Firebase Google Auth state
+  useEffect(() => {
+    const unsubscribe = onTeacherAuthChange((user) => {
+      setCurrentUser(user);
+      setIsAuthLoading(false);
+      if (user) {
+        setAuthError(null);
+        // Default display name if none set
+        const defaultName = user.displayName || (user.email ? user.email.split('@')[0] : 'Teacher');
+        const localTeacher = localStorage.getItem(`config:${user.uid}:teacherName`);
+        setTeacherName(localTeacher || defaultName);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Formatted date display
   const dateDisplay = useMemo(() => {
     try {
       const [y, m, d] = selectedDate.split('-').map(Number);
@@ -95,50 +123,61 @@ export default function App() {
     }
   }, [selectedDate]);
 
-  // Load config on startup
+  // Load teacher config from Firestore when authenticated
   useEffect(() => {
-    async function initSettings() {
-      // Check local storage first
-      const localTeacher = localStorage.getItem('config:teacherName');
-      const localUrl = localStorage.getItem('config:webAppUrl');
+    async function initTeacherSettings() {
+      if (!currentUser) return;
+      const uid = currentUser.uid;
+
+      // 1. Check local storage
+      const localTeacher = localStorage.getItem(`config:${uid}:teacherName`);
+      const localUrl = localStorage.getItem(`config:${uid}:webAppUrl`);
       if (localTeacher) setTeacherName(localTeacher);
       if (localUrl) setWebAppUrl(localUrl);
 
-      // Check Firestore config
-      const remoteConfig = await getAppConfigFromFirestore();
+      // 2. Fetch remote teacher config
+      const remoteConfig = await getAppConfigFromFirestore(uid);
       if (remoteConfig) {
         if (remoteConfig.teacherName) {
           setTeacherName(remoteConfig.teacherName);
-          localStorage.setItem('config:teacherName', remoteConfig.teacherName);
+          localStorage.setItem(`config:${uid}:teacherName`, remoteConfig.teacherName);
         }
         if (remoteConfig.webAppUrl) {
           setWebAppUrl(remoteConfig.webAppUrl);
-          localStorage.setItem('config:webAppUrl', remoteConfig.webAppUrl);
+          localStorage.setItem(`config:${uid}:webAppUrl`, remoteConfig.webAppUrl);
         }
       }
     }
-    initSettings();
-  }, []);
 
-  // Load grade data when grade or date changes
-  const loadGradeData = useCallback(async (grade: number, dateISO: string) => {
+    if (currentUser) {
+      initTeacherSettings();
+    }
+  }, [currentUser]);
+
+  // Load grade data when grade, date, or teacher changes
+  const loadGradeData = useCallback(async (grade: number, dateISO: string, uid: string) => {
+    if (!uid) return;
     setIsSaving(true);
 
     // 1. Load Roster: Try Firestore -> then LocalStorage -> then Defaults
     let currentRoster: string[] = [];
-    const remoteRoster = await getRosterFromFirestore(grade);
+    const remoteRoster = await getRosterFromFirestore(uid, grade);
     if (remoteRoster && remoteRoster.length > 0) {
       currentRoster = remoteRoster;
-      localStorage.setItem(`roster:${grade}`, JSON.stringify(currentRoster));
+      localStorage.setItem(`roster:${uid}:${grade}`, JSON.stringify(currentRoster));
     } else {
-      const localRoster = localStorage.getItem(`roster:${grade}`);
+      const localRoster = localStorage.getItem(`roster:${uid}:${grade}`);
       if (localRoster) {
-        currentRoster = JSON.parse(localRoster);
+        try {
+          currentRoster = JSON.parse(localRoster);
+        } catch {
+          currentRoster = DEFAULT_INITIAL_ROSTERS[grade] || [];
+        }
       } else {
         currentRoster = DEFAULT_INITIAL_ROSTERS[grade] || [];
         if (currentRoster.length > 0) {
-          saveRosterToFirestore(grade, currentRoster);
-          localStorage.setItem(`roster:${grade}`, JSON.stringify(currentRoster));
+          saveRosterToFirestore(uid, grade, currentRoster);
+          localStorage.setItem(`roster:${uid}:${grade}`, JSON.stringify(currentRoster));
         }
       }
     }
@@ -146,13 +185,17 @@ export default function App() {
 
     // 2. Load Scores: Try Firestore -> then LocalStorage -> then Defaults
     let currentScores: ScoresState = {};
-    const remoteScores = await getDailyScoresFromFirestore(grade, dateISO);
+    const remoteScores = await getDailyScoresFromFirestore(uid, grade, dateISO);
     if (remoteScores && Object.keys(remoteScores).length > 0) {
       currentScores = remoteScores;
     } else {
-      const localScores = localStorage.getItem(`scores:${grade}:${dateISO}`);
+      const localScores = localStorage.getItem(`scores:${uid}:${grade}:${dateISO}`);
       if (localScores) {
-        currentScores = JSON.parse(localScores);
+        try {
+          currentScores = JSON.parse(localScores);
+        } catch {
+          currentScores = {};
+        }
       }
     }
 
@@ -164,48 +207,81 @@ export default function App() {
     });
     setScores(currentScores);
 
-    // 3. Load Student History / Averages from Firestore
-    const gradeHistory = await getGradeHistoryFromFirestore(grade);
+    // 3. Load Student History / Averages for this teacher
+    const gradeHistory = await getGradeHistoryFromFirestore(uid, grade);
     setHistory(gradeHistory);
 
     // 4. Fetch available logged dates
-    const dates = await getLoggedDatesForGrade(grade);
+    const dates = await getLoggedDatesForGrade(uid, grade);
     setLoggedDates(dates);
 
     setIsSaving(false);
   }, []);
 
   useEffect(() => {
-    loadGradeData(currentGrade, selectedDate);
-  }, [currentGrade, selectedDate, loadGradeData]);
+    if (currentUser?.uid) {
+      loadGradeData(currentGrade, selectedDate, currentUser.uid);
+    }
+  }, [currentUser, currentGrade, selectedDate, loadGradeData]);
 
-  // Debounced auto-save scores to Firestore & LocalStorage
+  // Debounced auto-save scores to Firestore & LocalStorage for the current teacher
   const triggerAutoSave = (newScores: ScoresState, updatedRoster = roster) => {
+    if (!currentUser?.uid) return;
+    const uid = currentUser.uid;
+
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
     saveTimerRef.current = setTimeout(async () => {
       // Save locally
-      localStorage.setItem(`scores:${currentGrade}:${selectedDate}`, JSON.stringify(newScores));
-      localStorage.setItem(`roster:${currentGrade}`, JSON.stringify(updatedRoster));
+      localStorage.setItem(`scores:${uid}:${currentGrade}:${selectedDate}`, JSON.stringify(newScores));
+      localStorage.setItem(`roster:${uid}:${currentGrade}`, JSON.stringify(updatedRoster));
 
       // Save to Firestore
       const ok = await saveDailyScoresToFirestore(
+        uid,
         currentGrade,
         selectedDate,
         dateDisplay,
-        teacherName || 'Teacher',
+        teacherName || currentUser.displayName || 'Teacher',
         newScores
       );
 
       if (ok) {
         setSaveStatus(`Saved to Firestore (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`);
         setStatusType('ok');
-        setIsFirestoreConnected(true);
       } else {
-        setSaveStatus('Scores saved locally. Firestore sync pending.');
+        setSaveStatus('Scores saved locally. Cloud sync pending.');
         setStatusType('info');
       }
     }, 400);
+  };
+
+  // Google Sign In action
+  const handleGoogleSignIn = async () => {
+    setIsSigningIn(true);
+    setAuthError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-blocked') {
+        setAuthError('Popup was blocked by your browser. Please allow popups for this site and try again.');
+      } else if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
+        setAuthError('Sign in failed: ' + (err?.message || 'Please try again.'));
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  // Sign out action
+  const handleSignOut = async () => {
+    if (confirm('Are you sure you want to sign out?')) {
+      await logOut();
+      setRoster([]);
+      setScores({});
+      setHistory({});
+      setSettingsOpen(false);
+    }
   };
 
   // Student completion check
@@ -279,6 +355,7 @@ export default function App() {
 
   // Remove single student
   const handleRemoveStudent = async (student: string) => {
+    if (!currentUser?.uid) return;
     if (confirm(`Remove ${student} from Grade ${currentGrade}?`)) {
       const updatedRoster = roster.filter((n) => n !== student);
       const newScores = { ...scores };
@@ -287,8 +364,7 @@ export default function App() {
       setRoster(updatedRoster);
       setScores(newScores);
 
-      // Persist Roster & Scores to Firestore
-      await saveRosterToFirestore(currentGrade, updatedRoster);
+      await saveRosterToFirestore(currentUser.uid, currentGrade, updatedRoster);
       triggerAutoSave(newScores, updatedRoster);
     }
   };
@@ -296,6 +372,7 @@ export default function App() {
   // Add single student
   const handleAddStudent = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!currentUser?.uid) return;
     const name = newStudentName.trim();
     if (!name) return;
 
@@ -314,7 +391,7 @@ export default function App() {
     setScores(newScores);
     setNewStudentName('');
 
-    await saveRosterToFirestore(currentGrade, updatedRoster);
+    await saveRosterToFirestore(currentUser.uid, currentGrade, updatedRoster);
     triggerAutoSave(newScores, updatedRoster);
     setSaveStatus(`Added ${name} to Grade ${currentGrade}`);
     setStatusType('ok');
@@ -322,6 +399,7 @@ export default function App() {
 
   // Bulk add students
   const handleBulkAdd = async () => {
+    if (!currentUser?.uid) return;
     const lines = bulkInput
       .split('\n')
       .map((l) => l.trim())
@@ -344,7 +422,7 @@ export default function App() {
     setBulkInput('');
     setShowBulkAdd(false);
 
-    await saveRosterToFirestore(currentGrade, updatedRoster);
+    await saveRosterToFirestore(currentUser.uid, currentGrade, updatedRoster);
     triggerAutoSave(newScores, updatedRoster);
     setSaveStatus(`Added ${lines.length} students to Grade ${currentGrade}`);
     setStatusType('ok');
@@ -387,6 +465,9 @@ export default function App() {
 
   // Explicit Save button to Firestore and optionally Google Sheet
   const handleManualSave = async () => {
+    if (!currentUser?.uid) return;
+    const uid = currentUser.uid;
+
     if (!teacherName.trim()) {
       setSaveStatus('Please enter your Teacher name above before submitting.');
       setStatusType('err');
@@ -401,6 +482,7 @@ export default function App() {
 
     // 1. Save to Firestore
     const ok = await saveDailyScoresToFirestore(
+      uid,
       currentGrade,
       selectedDate,
       dateDisplay,
@@ -408,11 +490,11 @@ export default function App() {
       scores
     );
 
-    await saveRosterToFirestore(currentGrade, roster);
-    await saveAppConfigToFirestore({ teacherName, webAppUrl });
+    await saveRosterToFirestore(uid, currentGrade, roster);
+    await saveAppConfigToFirestore(uid, { teacherName, webAppUrl });
 
     // Refresh history
-    const updatedHistory = await getGradeHistoryFromFirestore(currentGrade);
+    const updatedHistory = await getGradeHistoryFromFirestore(uid, currentGrade);
     setHistory(updatedHistory);
 
     // 2. If WebAppUrl provided, also send to Google Apps Script
@@ -436,6 +518,7 @@ export default function App() {
             dateDisplay,
             grade: currentGrade,
             teacher: teacherName,
+            teacherEmail: currentUser.email,
             entries
           })
         });
@@ -457,6 +540,7 @@ export default function App() {
 
   // Import / Sync Roster & Averages from Google Sheet if URL provided
   const handleSyncWithSheet = async () => {
+    if (!currentUser?.uid) return;
     if (!webAppUrl) {
       setSettingsOpen(true);
       setSaveStatus('Enter your Google Apps Script Web App URL in settings first.');
@@ -472,7 +556,6 @@ export default function App() {
       const res = await fetch(webAppUrl, { method: 'GET' });
       const data = await res.json();
       const rosters = data.rosters || {};
-      const histories = data.history || {};
 
       let importedCount = 0;
       for (const gradeKey of Object.keys(rosters)) {
@@ -482,14 +565,14 @@ export default function App() {
         const names = (rosters[gradeKey] || []).map((n: string) => String(n).trim()).filter(Boolean);
         if (names.length) {
           const merged = Array.from(new Set([...(roster || []), ...names])).sort((a, b) => a.localeCompare(b));
-          await saveRosterToFirestore(grade, merged);
+          await saveRosterToFirestore(currentUser.uid, grade, merged);
           importedCount += names.length;
         }
       }
 
       setSaveStatus(`Sync complete! Synced ${importedCount} student names from Sheet.`);
       setStatusType('ok');
-      await loadGradeData(currentGrade, selectedDate);
+      await loadGradeData(currentGrade, selectedDate, currentUser.uid);
     } catch (err) {
       setSaveStatus('Could not sync with Google Sheet. Please check the Web App URL.');
       setStatusType('err');
@@ -542,9 +625,115 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // 1. Initial Loading State
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-[#F6F5F0] text-[#18191B] flex flex-col items-center justify-center p-6 select-none">
+        <div className="bg-white border-2 border-[#18191B] rounded-2xl p-8 bold-shadow max-w-sm w-full text-center space-y-4">
+          <div className="w-12 h-12 rounded-xl bg-[#E8F2F0] border-2 border-[#18191B] flex items-center justify-center mx-auto text-[#1F6F6B]">
+            <Database className="w-6 h-6 animate-pulse" />
+          </div>
+          <h2 className="font-serif-fraunces font-black text-xl text-[#18191B]">Process Score Checker</h2>
+          <p className="text-xs text-[#5C626A] font-medium">Connecting to secure teacher workspace…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Unauthenticated View: Teacher Sign In with Google
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#F6F5F0] text-[#18191B] flex flex-col items-center justify-center p-4 sm:p-6 selection:bg-[#18191B] selection:text-white">
+        <div className="max-w-md w-full bg-white border-2 border-[#18191B] rounded-3xl p-6 sm:p-8 bold-shadow space-y-6">
+          {/* Header */}
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-[#E8F2F0] border-2 border-[#18191B] flex items-center justify-center mx-auto bold-shadow-sm mb-3">
+              <BookOpen className="w-7 h-7 text-[#1F6F6B] stroke-[2.5]" />
+            </div>
+            <h1 className="font-serif-fraunces font-black text-2xl sm:text-3xl text-[#18191B] tracking-tight">
+              Process Score Checker
+            </h1>
+            <p className="text-xs text-[#5C626A] font-medium leading-relaxed">
+              Teacher Learning Skills evaluation with private cloud storage and Google authentication.
+            </p>
+          </div>
+
+          {/* Privacy & Isolation Highlight */}
+          <div className="bg-[#F6F5F0] border-2 border-[#18191B] rounded-2xl p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-7 h-7 rounded-lg bg-[#E8F2F0] border border-[#18191B] flex items-center justify-center text-[#1F6F6B] flex-shrink-0 mt-0.5">
+                <Lock className="w-4 h-4 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black text-[#18191B] uppercase tracking-wider">Isolated Teacher Accounts</h3>
+                <p className="text-[11px] text-[#5C626A] font-medium mt-0.5 leading-snug">
+                  Your student rosters, daily scores, and historical averages are strictly private to your Google profile. Other teachers cannot view your accounts.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 pt-1 border-t border-[#18191B]/15">
+              <div className="w-7 h-7 rounded-lg bg-[#E8F2F0] border border-[#18191B] flex items-center justify-center text-[#1F6F6B] flex-shrink-0 mt-0.5">
+                <ShieldCheck className="w-4 h-4 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black text-[#18191B] uppercase tracking-wider">Secure Google Sign-In</h3>
+                <p className="text-[11px] text-[#5C626A] font-medium mt-0.5 leading-snug">
+                  Sign in with any standard Gmail or school Google Workspace account.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Error Message */}
+          {authError && (
+            <div className="p-3 bg-[#FBEBE7] border-2 border-[#D94826] rounded-xl flex items-start gap-2.5 text-[#D94826] text-xs font-bold">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          {/* Google Sign In Button */}
+          <button
+            id="googleSignInBtn"
+            onClick={handleGoogleSignIn}
+            disabled={isSigningIn}
+            className="w-full py-3.5 px-4 bg-[#18191B] hover:bg-[#1F6F6B] text-white font-black text-sm uppercase tracking-wider rounded-xl border-2 border-[#18191B] bold-shadow flex items-center justify-center gap-3 transition-all cursor-pointer active:translate-x-0.5 active:translate-y-0.5 disabled:opacity-50"
+          >
+            {/* Google G Logo SVG */}
+            <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
+              <path
+                fill="#4285F4"
+                d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.34 24 12 24z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.97 0 12s.45 3.84 1.25 5.42l4.03-3.15z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+              />
+            </svg>
+            <span>{isSigningIn ? 'Signing in…' : 'Sign in with Google'}</span>
+          </button>
+
+          <p className="text-[10px] text-center text-[#5C626A] font-medium">
+            By signing in, your account profile and private data will be securely created in Google Cloud Firestore.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Authenticated App View
   return (
     <div className="min-h-screen bg-[#F6F5F0] text-[#18191B] font-sans pb-36 selection:bg-[#18191B] selection:text-white">
-      {/* Movable Mascot / Helper Character (Controlled with Arrow keys Left, Right, Up, Down) */}
+      {/* Movable Mascot / Helper Character */}
       <MovableMascot />
 
       {/* Main Container */}
@@ -558,52 +747,87 @@ export default function App() {
                 <span className="font-extrabold text-[#18191B]">Daily Checker</span>
               </h1>
               <span className="inline-flex items-center gap-1.5 text-[11px] font-mono-jb font-bold px-2.5 py-1 rounded-md bg-[#18191B] text-white border-2 border-[#18191B] bold-shadow-sm">
-                <Database className="w-3 h-3 text-[#5EEAD4]" />
-                <span>FIRESTORE LIVE</span>
+                <Lock className="w-3 h-3 text-[#5EEAD4]" />
+                <span>PRIVATE ACCOUNT</span>
               </span>
             </div>
 
-            {/* Date Navigator Stamp */}
-            <div className="flex items-center gap-1 bg-white border-2 border-[#18191B] rounded-lg px-2.5 py-1 bold-shadow-sm">
-              <button
-                id="prevDateBtn"
-                onClick={() => shiftDate(-1)}
-                className="p-1 text-[#18191B] hover:bg-[#F6F5F0] rounded transition cursor-pointer active:scale-95"
-                title="Previous Day"
-              >
-                <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
-              </button>
-
-              <label htmlFor="datePickerInput" className="cursor-pointer flex items-center gap-2 px-2">
-                <Calendar className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
-                <span className="font-mono-jb text-xs sm:text-sm text-[#18191B] font-bold tracking-tight">{dateDisplay}</span>
-              </label>
-              <input
-                id="datePickerInput"
-                type="date"
-                value={selectedDate}
-                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-                className="sr-only"
-              />
-
-              <button
-                id="nextDateBtn"
-                onClick={() => shiftDate(1)}
-                className="p-1 text-[#18191B] hover:bg-[#F6F5F0] rounded transition cursor-pointer active:scale-95"
-                title="Next Day"
-              >
-                <ChevronRight className="w-4 h-4 stroke-[2.5]" />
-              </button>
-
-              {selectedDate !== new Date().toISOString().slice(0, 10) && (
+            {/* Authenticated Teacher Profile Badge & Date Navigator */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Teacher Avatar & Sign Out */}
+              <div className="flex items-center gap-2 bg-white border-2 border-[#18191B] rounded-lg px-2.5 py-1 bold-shadow-sm">
+                {currentUser.photoURL ? (
+                  <img
+                    src={currentUser.photoURL}
+                    alt={currentUser.displayName || 'Teacher'}
+                    referrerPolicy="no-referrer"
+                    className="w-6 h-6 rounded-full border border-[#18191B] object-cover"
+                  />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-[#1F6F6B] text-white flex items-center justify-center text-[10px] font-black font-mono-jb">
+                    {(currentUser.displayName || currentUser.email || 'T').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-black text-[#18191B] leading-none max-w-[120px] truncate">
+                    {currentUser.displayName || teacherName || 'Teacher'}
+                  </span>
+                  <span className="text-[9px] text-[#5C626A] font-mono-jb leading-none truncate max-w-[120px]">
+                    {currentUser.email}
+                  </span>
+                </div>
                 <button
-                  id="todayBtn"
-                  onClick={jumpToToday}
-                  className="text-[10px] uppercase font-black tracking-wider px-2 py-0.5 rounded bg-[#1F6F6B] text-white hover:bg-[#164F4C] transition ml-1 cursor-pointer"
+                  id="signOutBtn"
+                  onClick={handleSignOut}
+                  className="ml-1 p-1 text-[#5C626A] hover:text-[#D94826] hover:bg-[#FBEBE7] rounded transition cursor-pointer"
+                  title="Sign Out / Switch Teacher"
                 >
-                  Today
+                  <LogOut className="w-3.5 h-3.5 stroke-[2.5]" />
                 </button>
-              )}
+              </div>
+
+              {/* Date Navigator Stamp */}
+              <div className="flex items-center gap-1 bg-white border-2 border-[#18191B] rounded-lg px-2.5 py-1 bold-shadow-sm">
+                <button
+                  id="prevDateBtn"
+                  onClick={() => shiftDate(-1)}
+                  className="p-1 text-[#18191B] hover:bg-[#F6F5F0] rounded transition cursor-pointer active:scale-95"
+                  title="Previous Day"
+                >
+                  <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+                </button>
+
+                <label htmlFor="datePickerInput" className="cursor-pointer flex items-center gap-2 px-2">
+                  <Calendar className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
+                  <span className="font-mono-jb text-xs sm:text-sm text-[#18191B] font-bold tracking-tight">{dateDisplay}</span>
+                </label>
+                <input
+                  id="datePickerInput"
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                  className="sr-only"
+                />
+
+                <button
+                  id="nextDateBtn"
+                  onClick={() => shiftDate(1)}
+                  className="p-1 text-[#18191B] hover:bg-[#F6F5F0] rounded transition cursor-pointer active:scale-95"
+                  title="Next Day"
+                >
+                  <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+                </button>
+
+                {selectedDate !== new Date().toISOString().slice(0, 10) && (
+                  <button
+                    id="todayBtn"
+                    onClick={jumpToToday}
+                    className="text-[10px] uppercase font-black tracking-wider px-2 py-0.5 rounded bg-[#1F6F6B] text-white hover:bg-[#164F4C] transition ml-1 cursor-pointer"
+                  >
+                    Today
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -620,10 +844,16 @@ export default function App() {
                 placeholder="Your name"
                 onChange={(e) => {
                   setTeacherName(e.target.value);
-                  localStorage.setItem('config:teacherName', e.target.value);
+                  if (currentUser?.uid) {
+                    localStorage.setItem(`config:${currentUser.uid}:teacherName`, e.target.value);
+                  }
                 }}
-                onBlur={() => saveAppConfigToFirestore({ teacherName })}
-                className="font-bold text-sm px-3 py-1.5 rounded-lg border-2 border-[#18191B] bg-white text-[#18191B] w-40 focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
+                onBlur={() => {
+                  if (currentUser?.uid) {
+                    saveAppConfigToFirestore(currentUser.uid, { teacherName });
+                  }
+                }}
+                className="font-bold text-sm px-3 py-1.5 rounded-lg border-2 border-[#18191B] bg-white text-[#18191B] w-44 focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
               />
             </div>
 
@@ -661,7 +891,7 @@ export default function App() {
               className={`p-2 rounded-lg border-2 border-[#18191B] bg-white hover:bg-[#E8F2F0] text-[#18191B] transition bold-shadow-sm cursor-pointer ${
                 settingsOpen ? 'bg-[#18191B] text-white border-[#18191B]' : ''
               }`}
-              title="Settings & Integrations"
+              title="Settings & Account"
             >
               <Settings className="w-4 h-4 stroke-[2.5]" />
             </button>
@@ -690,11 +920,11 @@ export default function App() {
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-black text-base text-[#18191B] flex items-center gap-2">
-                    <Database className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
-                    <span>Firestore Database &amp; Cloud Settings</span>
+                    <ShieldCheck className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
+                    <span>Teacher Account &amp; Sync Settings</span>
                   </h3>
                   <p className="text-xs text-[#5C626A] mt-1 font-medium leading-relaxed max-w-2xl">
-                    Student rosters, daily score checks, and multi-day averages are synced in real time to your cloud Firestore database. You can also connect a Google Apps Script Web App URL for Google Sheet synchronization.
+                    Signed in as <strong className="text-[#18191B]">{currentUser.email}</strong>. All student rosters, daily scores, and multi-day averages are stored strictly in your private teacher collection.
                   </p>
                 </div>
                 <button
@@ -723,10 +953,12 @@ export default function App() {
                     <button
                       id="saveUrlBtn"
                       onClick={() => {
-                        localStorage.setItem('config:webAppUrl', webAppUrl);
-                        saveAppConfigToFirestore({ webAppUrl });
-                        setSaveStatus('Settings saved to Firestore.');
-                        setStatusType('ok');
+                        if (currentUser?.uid) {
+                          localStorage.setItem(`config:${currentUser.uid}:webAppUrl`, webAppUrl);
+                          saveAppConfigToFirestore(currentUser.uid, { webAppUrl });
+                          setSaveStatus('Settings saved to Firestore.');
+                          setStatusType('ok');
+                        }
                       }}
                       className="px-4 py-2 rounded-lg bg-[#18191B] hover:bg-[#1F6F6B] text-white font-black text-xs transition bold-shadow-sm cursor-pointer"
                     >

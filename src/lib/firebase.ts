@@ -8,16 +8,25 @@ import {
   getDocs, 
   query, 
   where,
-  onSnapshot,
-  Firestore
+  Firestore 
 } from 'firebase/firestore';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged,
+  User,
+  Auth
+} from 'firebase/auth';
 import type { 
   RosterDoc, 
   DailyLogDoc, 
   AppConfigDoc, 
   ScoresState, 
   GradeHistoryState,
-  CategoryKey
+  CategoryKey,
+  TeacherProfile
 } from '../types';
 
 import firebaseConfigData from '../../firebase-applet-config.json';
@@ -54,17 +63,93 @@ export const db: Firestore = customDbId
   ? getFirestore(app, customDbId)
   : getFirestore(app);
 
-// Firestore Collections & Document Helpers
+export const auth: Auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+/**
+ * Sign in with Google Popup
+ */
+export async function signInWithGoogle(): Promise<User | null> {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    if (result.user) {
+      await syncTeacherProfile(result.user);
+    }
+    return result.user;
+  } catch (error: any) {
+    // Suppress popup cancellation or blocked popup warnings gracefully
+    if (error?.code !== 'auth/popup-closed-by-user' && error?.code !== 'auth/cancelled-popup-request') {
+      console.error('Sign-in error:', error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Sign out current teacher
+ */
+export async function logOut(): Promise<void> {
+  await signOut(auth);
+}
+
+/**
+ * Subscribe to Auth State Changes
+ */
+export function onTeacherAuthChange(callback: (user: User | null) => void) {
+  return onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      try {
+        await syncTeacherProfile(user);
+      } catch (err) {
+        console.warn('Profile sync notice:', err);
+      }
+    }
+    callback(user);
+  });
+}
+
+/**
+ * Sync teacher profile to their private user document
+ */
+export async function syncTeacherProfile(user: User): Promise<void> {
+  if (!user || !user.uid) return;
+  try {
+    const userDocRef = doc(db, 'users', user.uid);
+    const snap = await getDoc(userDocRef);
+    const now = Date.now();
+
+    const profileData: TeacherProfile = {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName || (user.email ? user.email.split('@')[0] : 'Teacher'),
+      photoURL: user.photoURL,
+      updatedAt: now
+    };
+
+    if (!snap.exists()) {
+      profileData.createdAt = now;
+      await setDoc(userDocRef, profileData);
+    } else {
+      await setDoc(userDocRef, profileData, { merge: true });
+    }
+  } catch (err) {
+    console.warn('Error saving teacher profile:', err);
+  }
+}
+
+// Sub-collections under `/users/{userId}/...`
 const ROSTERS_COL = 'rosters';
 const DAILY_LOGS_COL = 'dailyScores';
 const APP_CONFIG_COL = 'appConfig';
 
 /**
- * Fetch roster for a specific grade
+ * Fetch roster for a specific grade for an authenticated teacher
  */
-export async function getRosterFromFirestore(grade: number): Promise<string[] | null> {
+export async function getRosterFromFirestore(userId: string, grade: number): Promise<string[] | null> {
+  if (!userId) return null;
   try {
-    const docRef = doc(db, ROSTERS_COL, `grade_${grade}`);
+    const docRef = doc(db, 'users', userId, ROSTERS_COL, `grade_${grade}`);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
       const data = snap.data() as RosterDoc;
@@ -78,11 +163,12 @@ export async function getRosterFromFirestore(grade: number): Promise<string[] | 
 }
 
 /**
- * Save roster for a specific grade
+ * Save roster for a specific grade for an authenticated teacher
  */
-export async function saveRosterToFirestore(grade: number, students: string[]): Promise<boolean> {
+export async function saveRosterToFirestore(userId: string, grade: number, students: string[]): Promise<boolean> {
+  if (!userId) return false;
   try {
-    const docRef = doc(db, ROSTERS_COL, `grade_${grade}`);
+    const docRef = doc(db, 'users', userId, ROSTERS_COL, `grade_${grade}`);
     await setDoc(docRef, {
       grade,
       students,
@@ -96,12 +182,13 @@ export async function saveRosterToFirestore(grade: number, students: string[]): 
 }
 
 /**
- * Fetch daily scores for a specific grade and date
+ * Fetch daily scores for a specific grade and date for an authenticated teacher
  */
-export async function getDailyScoresFromFirestore(grade: number, dateISO: string): Promise<ScoresState | null> {
+export async function getDailyScoresFromFirestore(userId: string, grade: number, dateISO: string): Promise<ScoresState | null> {
+  if (!userId) return null;
   try {
     const docId = `grade_${grade}_date_${dateISO}`;
-    const docRef = doc(db, DAILY_LOGS_COL, docId);
+    const docRef = doc(db, 'users', userId, DAILY_LOGS_COL, docId);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
       const data = snap.data() as DailyLogDoc;
@@ -115,18 +202,20 @@ export async function getDailyScoresFromFirestore(grade: number, dateISO: string
 }
 
 /**
- * Save daily scores to Firestore
+ * Save daily scores to Firestore for an authenticated teacher
  */
 export async function saveDailyScoresToFirestore(
+  userId: string,
   grade: number,
   dateISO: string,
   dateDisplay: string,
   teacher: string,
   scores: ScoresState
 ): Promise<boolean> {
+  if (!userId) return false;
   try {
     const docId = `grade_${grade}_date_${dateISO}`;
-    const docRef = doc(db, DAILY_LOGS_COL, docId);
+    const docRef = doc(db, 'users', userId, DAILY_LOGS_COL, docId);
     await setDoc(docRef, {
       grade,
       date: dateISO,
@@ -145,12 +234,16 @@ export async function saveDailyScoresToFirestore(
 /**
  * Compute student averages across all saved daily scores in Firestore for a given grade
  */
-export async function getGradeHistoryFromFirestore(grade: number): Promise<GradeHistoryState> {
+export async function getGradeHistoryFromFirestore(userId: string, grade: number): Promise<GradeHistoryState> {
   const history: GradeHistoryState = {};
+  if (!userId) return history;
   const categories: CategoryKey[] = ['engagement', 'responsibility', 'respect'];
 
   try {
-    const q = query(collection(db, DAILY_LOGS_COL), where('grade', '==', grade));
+    const q = query(
+      collection(db, 'users', userId, DAILY_LOGS_COL), 
+      where('grade', '==', grade)
+    );
     const querySnapshot = await getDocs(q);
 
     querySnapshot.forEach((docSnap) => {
@@ -190,9 +283,13 @@ export async function getGradeHistoryFromFirestore(grade: number): Promise<Grade
 /**
  * Get all available logged dates for a grade
  */
-export async function getLoggedDatesForGrade(grade: number): Promise<{ date: string; dateDisplay: string; updatedAt: number }[]> {
+export async function getLoggedDatesForGrade(userId: string, grade: number): Promise<{ date: string; dateDisplay: string; updatedAt: number }[]> {
+  if (!userId) return [];
   try {
-    const q = query(collection(db, DAILY_LOGS_COL), where('grade', '==', grade));
+    const q = query(
+      collection(db, 'users', userId, DAILY_LOGS_COL), 
+      where('grade', '==', grade)
+    );
     const querySnapshot = await getDocs(q);
     const dates: { date: string; dateDisplay: string; updatedAt: number }[] = [];
     
@@ -217,9 +314,10 @@ export async function getLoggedDatesForGrade(grade: number): Promise<{ date: str
 /**
  * Save / Load app configuration (teacher name, WebApp URL)
  */
-export async function getAppConfigFromFirestore(): Promise<AppConfigDoc | null> {
+export async function getAppConfigFromFirestore(userId: string): Promise<AppConfigDoc | null> {
+  if (!userId) return null;
   try {
-    const docRef = doc(db, APP_CONFIG_COL, 'settings');
+    const docRef = doc(db, 'users', userId, APP_CONFIG_COL, 'settings');
     const snap = await getDoc(docRef);
     if (snap.exists()) {
       return snap.data() as AppConfigDoc;
@@ -231,9 +329,10 @@ export async function getAppConfigFromFirestore(): Promise<AppConfigDoc | null> 
   }
 }
 
-export async function saveAppConfigToFirestore(config: Partial<AppConfigDoc>): Promise<boolean> {
+export async function saveAppConfigToFirestore(userId: string, config: Partial<AppConfigDoc>): Promise<boolean> {
+  if (!userId) return false;
   try {
-    const docRef = doc(db, APP_CONFIG_COL, 'settings');
+    const docRef = doc(db, 'users', userId, APP_CONFIG_COL, 'settings');
     await setDoc(docRef, {
       ...config,
       updatedAt: Date.now()

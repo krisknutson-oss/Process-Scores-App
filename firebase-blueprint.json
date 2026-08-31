@@ -1,0 +1,126 @@
+{
+  "entities": {
+    "TeacherProfile": {
+      "title": "TeacherProfile",
+      "description": "Information about an authenticated teacher using their Google profile",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique Google user ID"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Teacher Google/Gmail address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Teacher display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Google account avatar URL"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Last updated timestamp"
+        }
+      },
+      "required": ["uid", "email"]
+    },
+    "Roster": {
+      "title": "Roster",
+      "description": "Grade roster of student names managed privately by a teacher",
+      "type": "object",
+      "properties": {
+        "grade": {
+          "type": "number",
+          "description": "Grade level number"
+        },
+        "students": {
+          "type": "array",
+          "description": "List of student names in this grade"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp of last modification"
+        }
+      },
+      "required": ["grade", "students"]
+    },
+    "DailyScoresLog": {
+      "title": "DailyScoresLog",
+      "description": "Daily student rating scores for a specific grade and date logged by a teacher",
+      "type": "object",
+      "properties": {
+        "grade": {
+          "type": "number",
+          "description": "Grade level"
+        },
+        "date": {
+          "type": "string",
+          "description": "Date in ISO format (YYYY-MM-DD)"
+        },
+        "dateDisplay": {
+          "type": "string",
+          "description": "Human-readable date format"
+        },
+        "teacher": {
+          "type": "string",
+          "description": "Name or email of teacher"
+        },
+        "scores": {
+          "type": "object",
+          "description": "Map of student names to category scores"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Last updated timestamp"
+        }
+      },
+      "required": ["grade", "date", "scores"]
+    },
+    "TeacherConfig": {
+      "title": "TeacherConfig",
+      "description": "Private configuration options for a teacher",
+      "type": "object",
+      "properties": {
+        "teacherName": {
+          "type": "string",
+          "description": "Preferred greeting or display name for the teacher"
+        },
+        "webAppUrl": {
+          "type": "string",
+          "description": "Google Apps Script Web App URL for Google Sheets sync"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp of last update"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "TeacherProfile",
+      "description": "Teacher profile document"
+    },
+    "/users/{userId}/rosters/{rosterId}": {
+      "schema": "Roster",
+      "description": "Grade rosters scoped strictly to the authenticated teacher"
+    },
+    "/users/{userId}/dailyScores/{dailyScoreId}": {
+      "schema": "DailyScoresLog",
+      "description": "Daily scored logs scoped strictly to the authenticated teacher"
+    },
+    "/users/{userId}/appConfig/{configId}": {
+      "schema": "TeacherConfig",
+      "description": "Teacher configuration settings"
+    }
+  }
+}
