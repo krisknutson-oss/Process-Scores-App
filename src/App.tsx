@@ -92,7 +92,13 @@ export default function App() {
 
   // Subscribe to Firebase Google Auth state
   useEffect(() => {
+    // Failsafe timeout: ensure we never hang on blank/loading screen if auth response is delayed
+    const timeoutTimer = setTimeout(() => {
+      setIsAuthLoading(false);
+    }, 1500);
+
     const unsubscribe = onTeacherAuthChange((user) => {
+      clearTimeout(timeoutTimer);
       setCurrentUser(user);
       setIsAuthLoading(false);
       if (user) {
@@ -104,7 +110,10 @@ export default function App() {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(timeoutTimer);
+      unsubscribe();
+    };
   }, []);
 
   // Formatted date display
