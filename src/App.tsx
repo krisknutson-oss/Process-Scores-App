@@ -19,7 +19,10 @@ import {
   LogIn,
   ShieldCheck,
   Lock,
-  Sparkles
+  Sparkles,
+  Trash2,
+  UserX,
+  Clock
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
@@ -37,7 +40,6 @@ import {
   saveAppConfigToFirestore,
   getLoggedDatesForGrade
 } from './lib/firebase';
-import { MovableMascot } from './components/MovableMascot';
 
 const GRADES = [6, 7, 8, 9, 10, 11, 12];
 const CATEGORIES: CategoryKey[] = ['engagement', 'responsibility', 'respect'];
@@ -83,10 +85,17 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   const [loggedDates, setLoggedDates] = useState<{ date: string; dateDisplay: string; updatedAt: number }[]>([]);
   
+  // Custom confirmation modals (avoids iframe window.confirm blocking)
+  const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
+  const [showResetAllModal, setShowResetAllModal] = useState<boolean>(false);
+
   const [saveStatus, setSaveStatus] = useState<string>('Scores sync to Firestore as you grade.');
   const [statusType, setStatusType] = useState<'info' | 'ok' | 'err'>('info');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastAutoSaveTimestamp, setLastAutoSaveTimestamp] = useState<string | null>(() => {
+    return localStorage.getItem('last_post_330_autosave') || null;
+  });
 
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -265,6 +274,54 @@ export default function App() {
     }, 400);
   };
 
+  // Daily Post-3:30 PM Auto-Save Scheduler (runs every 30 seconds when tab is open)
+  useEffect(() => {
+    if (!currentUser?.uid || roster.length === 0) return;
+
+    const checkAndAutoSavePost330 = async () => {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const todayISO = now.toISOString().slice(0, 10);
+
+      // Check if current user time is post 3:30 PM (15:30)
+      const isPost330 = currentHour > 15 || (currentHour === 15 && currentMinute >= 30);
+
+      if (isPost330) {
+        const lastSavedKey = `autosave_330:${currentUser.uid}:${todayISO}:${currentGrade}`;
+        const alreadyRanToday = localStorage.getItem(lastSavedKey);
+
+        if (!alreadyRanToday && Object.keys(scores).length > 0) {
+          const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          console.log(`[AutoSave] Triggering daily 3:30 PM scheduled auto-save for Grade ${currentGrade} at ${timeStr}`);
+
+          const ok = await saveDailyScoresToFirestore(
+            currentUser.uid,
+            currentGrade,
+            selectedDate,
+            dateDisplay,
+            teacherName || currentUser.displayName || 'Teacher',
+            scores
+          );
+
+          if (ok) {
+            localStorage.setItem(lastSavedKey, timeStr);
+            setLastAutoSaveTimestamp(`Today at ${timeStr}`);
+            setSaveStatus(`Auto-saved at 3:30 PM milestone (${timeStr})`);
+            setStatusType('ok');
+          }
+        }
+      }
+    };
+
+    // Run initial check
+    checkAndAutoSavePost330();
+
+    // Check periodically every 30 seconds
+    const interval = setInterval(checkAndAutoSavePost330, 30000);
+    return () => clearInterval(interval);
+  }, [currentUser, currentGrade, selectedDate, dateDisplay, teacherName, scores, roster]);
+
   // Google Sign In action
   const handleGoogleSignIn = async () => {
     setIsSigningIn(true);
@@ -362,20 +419,27 @@ export default function App() {
     setStatusType('info');
   };
 
-  // Remove single student
-  const handleRemoveStudent = async (student: string) => {
-    if (!currentUser?.uid) return;
-    if (confirm(`Remove ${student} from Grade ${currentGrade}?`)) {
-      const updatedRoster = roster.filter((n) => n !== student);
-      const newScores = { ...scores };
-      delete newScores[student];
+  // Request remove student confirmation
+  const handleInitiateRemoveStudent = (student: string) => {
+    setStudentToDelete(student);
+  };
 
-      setRoster(updatedRoster);
-      setScores(newScores);
+  // Confirm and perform student removal
+  const handleConfirmRemoveStudent = async () => {
+    if (!currentUser?.uid || !studentToDelete) return;
+    const student = studentToDelete;
+    const updatedRoster = roster.filter((n) => n !== student);
+    const newScores = { ...scores };
+    delete newScores[student];
 
-      await saveRosterToFirestore(currentUser.uid, currentGrade, updatedRoster);
-      triggerAutoSave(newScores, updatedRoster);
-    }
+    setRoster(updatedRoster);
+    setScores(newScores);
+    setStudentToDelete(null);
+
+    await saveRosterToFirestore(currentUser.uid, currentGrade, updatedRoster);
+    triggerAutoSave(newScores, updatedRoster);
+    setSaveStatus(`Removed ${student} from Grade ${currentGrade}`);
+    setStatusType('ok');
   };
 
   // Add single student
@@ -437,23 +501,24 @@ export default function App() {
     setStatusType('ok');
   };
 
-  // Reset all students in current grade to 3
+  // Open confirmation for reset all
   const handleClearAllToThree = () => {
     if (roster.length === 0) return;
-    if (
-      confirm(
-        `Reset today's scores for all ${roster.length} students in Grade ${currentGrade} back to 3? This will overwrite today's entries for this grade.`
-      )
-    ) {
-      const newScores: ScoresState = {};
-      roster.forEach((name) => {
-        newScores[name] = { engagement: '3', responsibility: '3', respect: '3' };
-      });
-      setScores(newScores);
-      triggerAutoSave(newScores);
-      setSaveStatus(`Reset all ${roster.length} students in Grade ${currentGrade} to 3.`);
-      setStatusType('info');
-    }
+    setShowResetAllModal(true);
+  };
+
+  // Perform reset all students in current grade to 3
+  const handleConfirmResetAllToThree = () => {
+    if (roster.length === 0) return;
+    const newScores: ScoresState = {};
+    roster.forEach((name) => {
+      newScores[name] = { engagement: '3', responsibility: '3', respect: '3' };
+    });
+    setScores(newScores);
+    triggerAutoSave(newScores);
+    setShowResetAllModal(false);
+    setSaveStatus(`Reset all ${roster.length} students in Grade ${currentGrade} to 3.`);
+    setStatusType('info');
   };
 
   // Category average computation (combines lifetime history + today's scores)
@@ -742,9 +807,6 @@ export default function App() {
   // 3. Authenticated App View
   return (
     <div className="min-h-screen bg-[#F6F5F0] text-[#18191B] font-sans pb-36 selection:bg-[#18191B] selection:text-white">
-      {/* Movable Mascot / Helper Character */}
-      <MovableMascot />
-
       {/* Main Container */}
       <div className="max-w-[980px] mx-auto px-4 sm:px-6 pt-6 pb-12">
         {/* Top Header */}
@@ -1115,50 +1177,58 @@ export default function App() {
                 <div
                   key={name}
                   data-name={name}
-                  className={`bg-white border-2 rounded-xl p-3.5 sm:p-4 flex items-center gap-4 flex-wrap transition-all ${
+                  className={`bg-white border-2 rounded-xl p-3.5 sm:p-4 flex items-center justify-between gap-4 flex-wrap md:flex-nowrap transition-all ${
                     complete
                       ? 'border-[#18191B] bg-[#FAFAF7] bold-shadow'
                       : 'border-[#18191B] bold-shadow-sm'
                   }`}
                 >
-                  {/* Student Name and Actions */}
-                  <div className="min-w-[170px] flex-shrink-0 flex items-center gap-2.5">
-                    <span
-                      className={`w-3 h-3 rounded-full flex-shrink-0 border border-[#18191B] transition-colors ${
-                        complete ? 'bg-[#1F6F6B]' : 'bg-[#E4DFC8]'
-                      }`}
-                    />
-                    <span className="font-black text-[15px] text-[#18191B] truncate max-w-[170px]" title={name}>
-                      {name}
-                    </span>
+                  {/* Student Name & Actions Column (Reset to 3 & Remove Student below) */}
+                  <div className="w-full sm:w-48 md:w-56 flex-shrink-0 flex flex-col justify-center gap-2 pr-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`w-3 h-3 rounded-full flex-shrink-0 border border-[#18191B] transition-colors ${
+                          complete ? 'bg-[#1F6F6B]' : 'bg-[#E4DFC8]'
+                        }`}
+                        title={complete ? 'All scores complete' : 'Pending scores'}
+                      />
+                      <span className="font-black text-[15px] text-[#18191B] truncate" title={name}>
+                        {name}
+                      </span>
+                    </div>
 
-                    <button
-                      id={`clearBtn-${name.replace(/\s+/g, '_')}`}
-                      onClick={() => handleClearStudent(name)}
-                      className="text-[10px] font-black uppercase tracking-wider text-[#5C626A] hover:text-[#18191B] hover:bg-[#E8F2F0] px-2 py-0.5 rounded border border-transparent hover:border-[#18191B] transition cursor-pointer"
-                      title="Reset this student's scores to 3"
-                    >
-                      Reset
-                    </button>
+                    {/* Action buttons stacked below the student name */}
+                    <div className="flex flex-col gap-1.5 pl-5">
+                      <button
+                        id={`clearBtn-${name.replace(/\s+/g, '_')}`}
+                        onClick={() => handleClearStudent(name)}
+                        className="text-[10px] font-black uppercase tracking-wider text-[#5C626A] hover:text-[#18191B] bg-[#F6F5F0] hover:bg-[#E8F2F0] px-2.5 py-1 rounded-md border border-[#18191B]/40 hover:border-[#18191B] transition cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5 w-fit"
+                        title="Reset this student's scores to 3"
+                      >
+                        <RotateCcw className="w-3 h-3 stroke-[2.5]" />
+                        <span>Reset to 3</span>
+                      </button>
 
-                    <button
-                      id={`removeBtn-${name.replace(/\s+/g, '_')}`}
-                      onClick={() => handleRemoveStudent(name)}
-                      className="text-xs text-[#5C626A] hover:text-[#D94826] font-black p-1 hover:bg-[#FBEBE7] rounded transition cursor-pointer"
-                      title="Remove student"
-                    >
-                      ✕
-                    </button>
+                      <button
+                        id={`removeBtn-${name.replace(/\s+/g, '_')}`}
+                        onClick={() => handleInitiateRemoveStudent(name)}
+                        className="text-[10px] font-bold text-[#5C626A] hover:text-[#D94826] hover:bg-[#FBEBE7] px-2.5 py-0.5 rounded-md border border-transparent hover:border-[#D94826]/40 transition cursor-pointer flex items-center gap-1.5 w-fit"
+                        title={`Remove ${name} from this grade`}
+                      >
+                        <Trash2 className="w-3 h-3 stroke-[2.5]" />
+                        <span>Remove student</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Rating Category Code Buttons */}
-                  <div className="flex gap-4 sm:gap-6 flex-wrap flex-1 min-w-[300px]">
+                  {/* Process Scores Row */}
+                  <div className="flex items-center gap-4 sm:gap-6 flex-1 flex-wrap lg:flex-nowrap justify-start sm:justify-center py-1 sm:py-0">
                     {CATEGORIES.map((cat) => (
-                      <div key={cat} className="flex flex-col gap-1.5">
+                      <div key={cat} className="flex flex-col gap-1 items-start">
                         <span className="text-[10px] uppercase tracking-wider text-[#18191B] font-black">
                           {CATEGORY_LABELS[cat]}
                         </span>
-                        <div className="flex gap-1.5">
+                        <div className="flex items-center gap-1 sm:gap-1.5">
                           {CODES.map((code) => {
                             const isActive = s[cat] === code;
                             return (
@@ -1183,7 +1253,7 @@ export default function App() {
                   </div>
 
                   {/* Multi-day Category Averages */}
-                  <div className="flex gap-2 ml-auto flex-shrink-0 pl-4 border-l-2 border-[#18191B]">
+                  <div className="flex items-center gap-1.5 sm:gap-2 ml-auto flex-shrink-0 pl-3 sm:pl-4 border-t sm:border-t-0 sm:border-l-2 border-[#18191B] pt-2 sm:pt-0 w-full sm:w-auto justify-end">
                     {CATEGORIES.map((cat) => {
                       const avg = computeStudentCategoryAverage(name, cat);
                       const isEmpty = avg === null;
@@ -1191,19 +1261,18 @@ export default function App() {
                       return (
                         <div
                           key={cat}
-                          className={`flex flex-col items-center justify-center w-14 py-1 px-1 rounded-lg border-2 text-center transition-all ${
+                          className={`flex flex-col items-center justify-center w-12 sm:w-13 py-1 px-1 rounded-lg border-2 text-center transition-all ${
                             isEmpty
                               ? 'bg-[#F6F5F0] border-[#18191B]/30'
                               : 'bg-[#E8F2F0] border-[#18191B] bold-shadow-sm'
                           }`}
+                          title={`${CATEGORY_LABELS[cat]} Multi-day Average`}
                         >
-                          <span
-                            className="text-[9px] uppercase tracking-wider font-black leading-tight text-[#18191B]"
-                          >
+                          <span className="text-[9px] uppercase tracking-wider font-black leading-tight text-[#18191B]">
                             {CATEGORY_LABELS[cat].slice(0, 4)}
                           </span>
                           <span
-                            className={`font-mono-jb text-[13px] font-black leading-snug mt-0.5 ${
+                            className={`font-mono-jb text-[12px] sm:text-[13px] font-black leading-snug mt-0.5 ${
                               isEmpty ? 'text-[#5C626A]' : 'text-[#18191B]'
                             }`}
                           >
@@ -1242,29 +1311,120 @@ export default function App() {
         </div>
       </div>
 
+      {/* Confirmation Modal: Remove Student */}
+      {studentToDelete && (
+        <div className="fixed inset-0 z-50 bg-[#18191B]/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white border-2 border-[#18191B] rounded-2xl p-6 max-w-md w-full bold-shadow space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#FBEBE7] border-2 border-[#D94826] flex items-center justify-center text-[#D94826] flex-shrink-0">
+                <Trash2 className="w-5 h-5 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="font-serif-fraunces font-black text-lg text-[#18191B]">Remove Student</h3>
+                <p className="text-xs text-[#5C626A] font-medium">Grade {currentGrade} Roster</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-[#18191B] font-medium leading-relaxed">
+              Are you sure you want to remove <strong className="font-black text-[#18191B] underline">{studentToDelete}</strong> from Grade {currentGrade}?
+            </p>
+            <p className="text-[11px] text-[#5C626A] font-medium">
+              This will remove them from the grade roster and delete their today's temporary scores.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setStudentToDelete(null)}
+                className="px-4 py-2 rounded-lg border-2 border-[#18191B] text-xs font-bold text-[#18191B] hover:bg-[#F6F5F0] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRemoveStudent}
+                className="px-4 py-2 rounded-lg bg-[#D94826] hover:bg-[#B8381A] text-white border-2 border-[#18191B] text-xs font-black uppercase tracking-wider bold-shadow-sm transition cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5"
+              >
+                <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Yes, Remove Student</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Reset All to 3 */}
+      {showResetAllModal && (
+        <div className="fixed inset-0 z-50 bg-[#18191B]/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white border-2 border-[#18191B] rounded-2xl p-6 max-w-md w-full bold-shadow space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#E8F2F0] border-2 border-[#1F6F6B] flex items-center justify-center text-[#1F6F6B] flex-shrink-0">
+                <RotateCcw className="w-5 h-5 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="font-serif-fraunces font-black text-lg text-[#18191B]">Reset All Scores to 3</h3>
+                <p className="text-xs text-[#5C626A] font-medium">Grade {currentGrade} • {dateDisplay}</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-[#18191B] font-medium leading-relaxed">
+              Are you sure you want to reset scores for all <strong className="font-black">{roster.length}</strong> students in Grade {currentGrade} back to <strong className="font-black">3</strong> for today?
+            </p>
+            <p className="text-[11px] text-[#5C626A] font-medium">
+              This will update today's Engagement, Responsibility, and Respect scores to standard grade-level expectation (3).
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResetAllModal(false)}
+                className="px-4 py-2 rounded-lg border-2 border-[#18191B] text-xs font-bold text-[#18191B] hover:bg-[#F6F5F0] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmResetAllToThree}
+                className="px-4 py-2 rounded-lg bg-[#18191B] hover:bg-[#1F6F6B] text-white border-2 border-[#18191B] text-xs font-black uppercase tracking-wider bold-shadow-sm transition cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Reset All to 3</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bottom Sticky Save Bar */}
       <footer className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t-2 border-[#18191B] py-3.5 px-4 sm:px-6 shadow-2xl">
         <div className="max-w-[980px] mx-auto flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2.5 flex-1 min-w-[220px]">
-            {statusType === 'ok' ? (
-              <CheckCircle2 className="w-5 h-5 text-[#1F6F6B] stroke-[2.5] flex-shrink-0" />
-            ) : statusType === 'err' ? (
-              <AlertCircle className="w-5 h-5 text-[#D94826] stroke-[2.5] flex-shrink-0" />
-            ) : (
-              <Cloud className="w-5 h-5 text-[#18191B] stroke-[2.5] flex-shrink-0" />
-            )}
-            <span
-              id="saveStatus"
-              className={`text-xs sm:text-sm font-bold ${
-                statusType === 'ok'
-                  ? 'text-[#1F6F6B]'
-                  : statusType === 'err'
-                  ? 'text-[#D94826]'
-                  : 'text-[#18191B]'
-              }`}
-            >
-              {saveStatus}
-            </span>
+          <div className="flex items-center gap-2.5 flex-1 min-w-[220px] flex-wrap">
+            <div className="flex items-center gap-2">
+              {statusType === 'ok' ? (
+                <CheckCircle2 className="w-5 h-5 text-[#1F6F6B] stroke-[2.5] flex-shrink-0" />
+              ) : statusType === 'err' ? (
+                <AlertCircle className="w-5 h-5 text-[#D94826] stroke-[2.5] flex-shrink-0" />
+              ) : (
+                <Cloud className="w-5 h-5 text-[#18191B] stroke-[2.5] flex-shrink-0" />
+              )}
+              <span
+                id="saveStatus"
+                className={`text-xs sm:text-sm font-bold ${
+                  statusType === 'ok'
+                    ? 'text-[#1F6F6B]'
+                    : statusType === 'err'
+                    ? 'text-[#D94826]'
+                    : 'text-[#18191B]'
+                }`}
+              >
+                {saveStatus}
+              </span>
+            </div>
+
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#E8F2F0] border border-[#18191B]/20 text-[10px] font-mono-jb text-[#1F6F6B] font-bold" title="Auto-saves to Firestore after 3:30 PM local teacher time each day">
+              <Clock className="w-3 h-3 stroke-[2.5]" />
+              <span>Daily 3:30 PM Autosave Enabled</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
