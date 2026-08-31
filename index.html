@@ -35,8 +35,32 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
   </head>
-  <body>
-    <div id="root"></div>
+  <body class="bg-[#F6F5F0] text-[#18191B] antialiased">
+    <div id="root">
+      <div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: system-ui, -apple-system, sans-serif; background-color: #F6F5F0; color: #18191B; padding: 24px;">
+        <div style="background: white; border: 2px solid #18191B; border-radius: 20px; padding: 32px; max-width: 420px; width: 100%; text-align: center; box-shadow: 4px 4px 0px #18191B;">
+          <div style="width: 52px; height: 52px; border-radius: 14px; background: #E8F2F0; border: 2px solid #18191B; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; font-size: 26px;">
+            📊
+          </div>
+          <h1 style="font-size: 20px; font-weight: 900; margin: 0 0 8px 0; color: #18191B;">Process Score Checker</h1>
+          <p style="font-size: 13px; color: #5C626A; margin: 0 0 18px 0; line-height: 1.4;">Loading application workspace…</p>
+          <div style="height: 4px; width: 100%; background: #E8F2F0; border-radius: 99px; overflow: hidden; border: 1px solid #18191B;">
+            <div style="height: 100%; width: 45%; background: #1F6F6B; border-radius: 99px; animation: pulseBar 1.2s infinite ease-in-out;"></div>
+          </div>
+          <noscript>
+            <p style="color: #D94826; font-size: 12px; margin-top: 16px; font-weight: bold;">
+              Please enable JavaScript in your browser to use the Process Score Checker.
+            </p>
+          </noscript>
+        </div>
+      </div>
+      <style>
+        @keyframes pulseBar {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(250%); }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
