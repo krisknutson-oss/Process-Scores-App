@@ -112,6 +112,7 @@ export default function App() {
 
   // Custom confirmation modals (avoids iframe window.confirm blocking)
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
+  const [classToDelete, setClassToDelete] = useState<ClassDoc | null>(null);
   const [showResetAllModal, setShowResetAllModal] = useState<boolean>(false);
 
   const [saveStatus, setSaveStatus] = useState<string>('Scores sync to Firestore as you grade.');
@@ -216,12 +217,37 @@ export default function App() {
         const loadedClasses = await getClassesFromFirestore(uid);
 
         if (loadedClasses && loadedClasses.length > 0) {
-          setClasses(loadedClasses);
+          // Sanitize any existing classes that had "Period X" in name or period property
+          const sanitizedClasses = loadedClasses.map((c) => {
+            let cleanName = c.name;
+            if (/ - Period \d+/i.test(cleanName)) {
+              cleanName = cleanName.replace(/\s*-\s*Period\s+\d+/i, '').trim();
+            } else if (/^Period \d+\s*-\s*/i.test(cleanName)) {
+              cleanName = cleanName.replace(/^Period\s+\d+\s*-\s*/i, '').trim();
+            } else if (/^Period \d+$/i.test(cleanName)) {
+              cleanName = `Grade ${c.grade}`;
+            }
+
+            const updatedDoc: ClassDoc = {
+              ...c,
+              name: cleanName || `Grade ${c.grade}`,
+              period: undefined
+            };
+
+            // If the name changed or period was present, update Firestore silently
+            if (updatedDoc.name !== c.name || c.period) {
+              saveClassToFirestore(uid, updatedDoc).catch((e) => console.warn('Silently sanitized class doc:', e));
+            }
+
+            return updatedDoc;
+          });
+
+          setClasses(sanitizedClasses);
           const savedActiveClass = localStorage.getItem(`activeClassId:${uid}`);
-          if (savedActiveClass && loadedClasses.some((c) => c.id === savedActiveClass)) {
+          if (savedActiveClass && sanitizedClasses.some((c) => c.id === savedActiveClass)) {
             setActiveClassId(savedActiveClass);
           } else {
-            setActiveClassId(loadedClasses[0].id);
+            setActiveClassId(sanitizedClasses[0].id);
           }
         } else {
           // Bootstrap default starter classes (Grades 6 through 12) with existing rosters if any
@@ -253,7 +279,6 @@ export default function App() {
               id: `cls_grade_${g}`,
               name: `Grade ${g}`,
               grade: g,
-              period: `Period ${i + 1}`,
               subject: 'General',
               color: CLASS_COLORS[i % CLASS_COLORS.length].id,
               students: classRoster,
@@ -472,7 +497,6 @@ export default function App() {
       id: classData.id,
       name: classData.name,
       grade: classData.grade,
-      period: classData.period,
       subject: classData.subject,
       color: classData.color || 'teal',
       students: studentsList,
@@ -505,25 +529,26 @@ export default function App() {
     if (!currentUser?.uid) return;
     const uid = currentUser.uid;
 
+    const classBeingDeleted = classes.find((c) => c.id === classId);
     const ok = await deleteClassFromFirestore(uid, classId);
     if (ok) {
       const remaining = classes.filter((c) => c.id !== classId);
       setClasses(remaining);
+      setClassToDelete(null);
 
       if (remaining.length > 0) {
         const nextActive = remaining[0].id;
         setActiveClassId(nextActive);
         localStorage.setItem(`activeClassId:${uid}`, nextActive);
       } else {
-        // If teacher deleted all classes, auto-create one fresh class
+        // If teacher deleted all classes, auto-create one fresh default class
         const fallbackClass: ClassDoc = {
           id: `cls_${Date.now()}`,
-          name: 'Period 1',
+          name: 'Grade 8',
           grade: 8,
-          period: 'Period 1',
           subject: 'General',
           color: 'teal',
-          students: [],
+          students: DEFAULT_INITIAL_ROSTERS[8] || [],
           createdAt: Date.now(),
           updatedAt: Date.now()
         };
@@ -533,7 +558,7 @@ export default function App() {
         localStorage.setItem(`activeClassId:${uid}`, fallbackClass.id);
       }
 
-      setSaveStatus('Class deleted.');
+      setSaveStatus(`Class ${classBeingDeleted ? `"${classBeingDeleted.name}"` : ''} deleted.`);
       setStatusType('ok');
     }
   };
@@ -1187,7 +1212,7 @@ export default function App() {
                   >
                     {classes.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name} {c.period ? `(${c.period})` : ''} • Grade {c.grade} ({c.students.length} students)
+                        {c.name} • Grade {c.grade} ({c.students.length} students)
                       </option>
                     ))}
                   </select>
@@ -1212,6 +1237,18 @@ export default function App() {
                   </button>
                 )}
 
+                {/* Delete Class button */}
+                {activeClass && (
+                  <button
+                    id="deleteActiveClassBtn"
+                    onClick={() => setClassToDelete(activeClass)}
+                    className="p-1.5 rounded-lg border-2 border-[#18191B] bg-white hover:bg-[#FBEBE7] text-[#5C626A] hover:text-[#D94826] transition cursor-pointer"
+                    title={`Delete ${activeClass.name}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                  </button>
+                )}
+
                 {/* New Class button */}
                 <button
                   id="newClassBtn"
@@ -1223,7 +1260,7 @@ export default function App() {
                     })
                   }
                   className="px-3 py-1.5 rounded-lg bg-[#18191B] hover:bg-[#1F6F6B] text-white border-2 border-[#18191B] text-xs font-black uppercase tracking-wider transition bold-shadow-sm cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5"
-                  title="Create a new class, section, or subject"
+                  title="Create a new class or section"
                 >
                   <Plus className="w-3.5 h-3.5 stroke-[3]" />
                   <span>New Class</span>
@@ -1329,7 +1366,6 @@ export default function App() {
             {activeClass && (
               <div className="ml-auto flex items-center gap-2 text-xs font-mono-jb text-[#5C626A]">
                 <span className="font-bold text-[#18191B]">Grade {activeClass.grade}</span>
-                {activeClass.period && <span>• {activeClass.period}</span>}
                 {activeClass.subject && <span>• {activeClass.subject}</span>}
               </div>
             )}
@@ -1358,6 +1394,81 @@ export default function App() {
                 >
                   ✕
                 </button>
+              </div>
+
+              {/* Class Management in Settings */}
+              <div className="p-3.5 bg-[#F6F5F0] border-2 border-[#18191B] rounded-xl space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
+                    <h4 className="font-black text-xs uppercase tracking-wider text-[#18191B]">
+                      Manage Your Classes ({classes.length})
+                    </h4>
+                  </div>
+                  <button
+                    id="settingsNewClassBtn"
+                    onClick={() =>
+                      setClassModal({
+                        isOpen: true,
+                        mode: 'create',
+                        targetClass: null
+                      })
+                    }
+                    className="px-2.5 py-1 rounded bg-[#18191B] hover:bg-[#1F6F6B] text-white border-2 border-[#18191B] text-[11px] font-black uppercase tracking-wider transition cursor-pointer flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3 stroke-[3]" />
+                    <span>Create Class</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  {classes.map((c) => {
+                    const col = CLASS_COLORS.find((clr) => clr.id === c.color) || CLASS_COLORS[0];
+                    return (
+                      <div
+                        key={c.id}
+                        className="p-2.5 bg-white border-2 border-[#18191B] rounded-lg flex items-center justify-between gap-2 bold-shadow-xs"
+                      >
+                        <div className="min-w-0 flex items-center gap-2">
+                          <span
+                            className="w-3 h-3 rounded-full border border-black/20 flex-shrink-0"
+                            style={{ backgroundColor: col.pillBg }}
+                          />
+                          <div className="truncate">
+                            <p className="text-xs font-black text-[#18191B] truncate">{c.name}</p>
+                            <p className="text-[10px] text-[#5C626A] font-bold">
+                              Grade {c.grade} • {c.students.length} students
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setClassModal({
+                                isOpen: true,
+                                mode: 'edit',
+                                targetClass: c
+                              })
+                            }
+                            className="p-1 rounded border border-[#18191B] hover:bg-[#E8F2F0] text-[#18191B] transition cursor-pointer"
+                            title={`Edit ${c.name}`}
+                          >
+                            <Edit2 className="w-3 h-3 stroke-[2.5]" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setClassToDelete(c)}
+                            className="p-1 rounded border border-[#18191B] hover:bg-[#FBEBE7] text-[#D94826] transition cursor-pointer"
+                            title={`Delete ${c.name}`}
+                          >
+                            <Trash2 className="w-3 h-3 stroke-[2.5]" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
@@ -1765,6 +1876,48 @@ export default function App() {
               >
                 <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" />
                 <span>Yes, Remove Student</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Delete Class */}
+      {classToDelete && (
+        <div className="fixed inset-0 z-50 bg-[#18191B]/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white border-2 border-[#18191B] rounded-2xl p-6 max-w-md w-full bold-shadow space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#FBEBE7] border-2 border-[#D94826] flex items-center justify-center text-[#D94826] flex-shrink-0">
+                <Trash2 className="w-5 h-5 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="font-serif-fraunces font-black text-lg text-[#18191B]">Delete Class</h3>
+                <p className="text-xs text-[#5C626A] font-medium">{classToDelete.name}</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-[#18191B] font-medium leading-relaxed">
+              Are you sure you want to delete <strong className="font-black text-[#18191B] underline">{classToDelete.name}</strong> (Grade {classToDelete.grade})?
+            </p>
+            <p className="text-[11px] text-[#5C626A] font-medium">
+              This will permanently remove this class section and its student roster ({classToDelete.students.length} students) from your teacher account.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setClassToDelete(null)}
+                className="px-4 py-2 rounded-lg border-2 border-[#18191B] text-xs font-bold text-[#18191B] hover:bg-[#F6F5F0] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteClass(classToDelete.id)}
+                className="px-4 py-2 rounded-lg bg-[#D94826] hover:bg-[#B8381A] text-white border-2 border-[#18191B] text-xs font-black uppercase tracking-wider bold-shadow-sm transition cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5"
+              >
+                <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Yes, Delete Class</span>
               </button>
             </div>
           </div>

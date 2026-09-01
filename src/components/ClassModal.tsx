@@ -12,8 +12,7 @@ export const CLASS_COLORS: { id: string; name: string; bg: string; text: string;
   { id: 'purple', name: 'Purple', bg: '#F3E8FF', text: '#6D28D9', border: '#7C3AED', pillBg: '#7C3AED' },
 ];
 
-const COMMON_SUBJECTS = ['Math', 'Science', 'English / Language Arts', 'Social Studies', 'History', 'Art', 'PE', 'Music', 'Robotics', 'Homeroom', 'General'];
-const COMMON_PERIODS = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5', 'Period 6', 'Period 7', 'Period 8', 'Block A', 'Block B', 'Morning', 'Afternoon'];
+const COMMON_SUBJECTS = ['Science', 'Mathematics', 'English / Language Arts', 'Social Studies', 'History', 'Art', 'PE', 'Music', 'Robotics', 'Homeroom', 'General'];
 const GRADES = [6, 7, 8, 9, 10, 11, 12];
 
 interface ClassModalProps {
@@ -38,7 +37,6 @@ export function ClassModal({
   const [name, setName] = useState('');
   const [grade, setGrade] = useState<number>(8);
   const [subject, setSubject] = useState('');
-  const [period, setPeriod] = useState('');
   const [color, setColor] = useState('teal');
   const [starterStudentsText, setStarterStudentsText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,16 +49,14 @@ export function ClassModal({
         setName(initialClass.name);
         setGrade(initialClass.grade);
         setSubject(initialClass.subject || '');
-        setPeriod(initialClass.period || '');
         setColor(initialClass.color || 'teal');
         setStarterStudentsText('');
       } else {
         // Suggested name for new class
         const defaultGrade = 8;
-        setName(`Grade ${defaultGrade} - Period ${existingClassesCount + 1}`);
+        setName(`Grade ${defaultGrade}`);
         setGrade(defaultGrade);
         setSubject('');
-        setPeriod(`Period ${existingClassesCount + 1}`);
         const colorOption = CLASS_COLORS[existingClassesCount % CLASS_COLORS.length].id;
         setColor(colorOption);
         setStarterStudentsText('');
@@ -90,7 +86,6 @@ export function ClassModal({
         name: trimmedName,
         grade,
         subject: subject.trim() || undefined,
-        period: period.trim() || undefined,
         color,
         students: initialClass?.students || [],
         starterStudentsText: mode === 'create' ? starterStudentsText : undefined,
@@ -131,7 +126,7 @@ export function ClassModal({
               </h3>
               <p className="text-xs text-[#5C626A] font-medium">
                 {mode === 'create'
-                  ? 'Add a section, subject, or period to your teacher account'
+                  ? 'Add a class section or subject to your teacher account'
                   : `Managing settings for ${initialClass?.name}`}
               </p>
             </div>
@@ -160,7 +155,7 @@ export function ClassModal({
             </div>
             <p className="text-xs text-[#18191B] font-medium leading-relaxed">
               Are you sure you want to delete <strong className="font-black">{initialClass?.name}</strong>?
-              This will remove the class and its student roster list from your teacher account.
+              This will remove this class and its student roster list from your teacher account.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -193,13 +188,13 @@ export function ClassModal({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Period 2 - Grade 8 Science"
+                placeholder="e.g. Grade 8 Science or Homeroom 7"
                 className="w-full px-3.5 py-2 border-2 border-[#18191B] rounded-lg text-sm bg-white font-bold placeholder:text-[#5C626A]/60 focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
               />
             </div>
 
-            {/* Grade Level & Period in two columns */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Grade Level & Subject in two columns */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label htmlFor="classGradeSelect" className="block text-[11px] font-black text-[#18191B] uppercase tracking-wider mb-1">
                   Grade Level
@@ -219,45 +214,24 @@ export function ClassModal({
               </div>
 
               <div>
-                <label htmlFor="classPeriodInput" className="block text-[11px] font-black text-[#18191B] uppercase tracking-wider mb-1">
-                  Period / Block
+                <label htmlFor="classSubjectInput" className="block text-[11px] font-black text-[#18191B] uppercase tracking-wider mb-1">
+                  Subject / Course (Optional)
                 </label>
                 <input
-                  id="classPeriodInput"
+                  id="classSubjectInput"
                   type="text"
-                  value={period}
-                  list="periodSuggestions"
-                  onChange={(e) => setPeriod(e.target.value)}
-                  placeholder="e.g. Period 1"
+                  value={subject}
+                  list="subjectSuggestions"
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="e.g. Science, Math, Art"
                   className="w-full px-3 py-2 border-2 border-[#18191B] rounded-lg text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm"
                 />
-                <datalist id="periodSuggestions">
-                  {COMMON_PERIODS.map((p) => (
-                    <option key={p} value={p} />
+                <datalist id="subjectSuggestions">
+                  {COMMON_SUBJECTS.map((s) => (
+                    <option key={s} value={s} />
                   ))}
                 </datalist>
               </div>
-            </div>
-
-            {/* Subject / Course */}
-            <div>
-              <label htmlFor="classSubjectInput" className="block text-[11px] font-black text-[#18191B] uppercase tracking-wider mb-1">
-                Subject / Course Name (Optional)
-              </label>
-              <input
-                id="classSubjectInput"
-                type="text"
-                value={subject}
-                list="subjectSuggestions"
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="e.g. Science, Mathematics, Robotics"
-                className="w-full px-3 py-2 border-2 border-[#18191B] rounded-lg text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm"
-              />
-              <datalist id="subjectSuggestions">
-                {COMMON_SUBJECTS.map((s) => (
-                  <option key={s} value={s} />
-                ))}
-              </datalist>
             </div>
 
             {/* Color Accent Picker */}
