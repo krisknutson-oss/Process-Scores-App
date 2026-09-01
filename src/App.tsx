@@ -16,32 +16,35 @@ import {
   Award,
   BookOpen,
   LogOut,
-  LogIn,
   ShieldCheck,
   Lock,
-  Sparkles,
   Trash2,
-  UserX,
-  Clock
+  Clock,
+  Plus,
+  Edit2,
+  Layers,
+  ChevronDown
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
-import type { CategoryKey, ScoreValue, ScoresState, GradeHistoryState } from './types';
+import type { CategoryKey, ScoreValue, ScoresState, GradeHistoryState, ClassDoc } from './types';
 import {
   signInWithGoogle,
   logOut,
   onTeacherAuthChange,
+  getClassesFromFirestore,
+  saveClassToFirestore,
+  deleteClassFromFirestore,
+  getDailyScoresForClass,
+  saveDailyScoresForClass,
+  getClassHistoryFromFirestore,
+  getLoggedDatesForClass,
   getRosterFromFirestore,
-  saveRosterToFirestore,
-  getDailyScoresFromFirestore,
-  saveDailyScoresToFirestore,
-  getGradeHistoryFromFirestore,
   getAppConfigFromFirestore,
-  saveAppConfigToFirestore,
-  getLoggedDatesForGrade
+  saveAppConfigToFirestore
 } from './lib/firebase';
+import { ClassModal, CLASS_COLORS } from './components/ClassModal';
 
-const GRADES = [6, 7, 8, 9, 10, 11, 12];
 const CATEGORIES: CategoryKey[] = ['engagement', 'responsibility', 'respect'];
 const CATEGORY_LABELS: Record<CategoryKey, string> = {
   engagement: 'Engagement',
@@ -68,13 +71,16 @@ export default function App() {
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Multiple Classes State
+  const [classes, setClasses] = useState<ClassDoc[]>([]);
+  const [activeClassId, setActiveClassId] = useState<string>('');
+  const [isClassesLoading, setIsClassesLoading] = useState<boolean>(false);
+
   // App & Grading State
-  const [currentGrade, setCurrentGrade] = useState<number>(8);
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [teacherName, setTeacherName] = useState<string>('');
   const [webAppUrl, setWebAppUrl] = useState<string>('');
   
-  const [roster, setRoster] = useState<string[]>([]);
   const [scores, setScores] = useState<ScoresState>({});
   const [history, setHistory] = useState<GradeHistoryState>({});
   
@@ -85,6 +91,17 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   const [loggedDates, setLoggedDates] = useState<{ date: string; dateDisplay: string; updatedAt: number }[]>([]);
   
+  // Class Modal State
+  const [classModal, setClassModal] = useState<{
+    isOpen: boolean;
+    mode: 'create' | 'edit';
+    targetClass?: ClassDoc | null;
+  }>({
+    isOpen: false,
+    mode: 'create',
+    targetClass: null
+  });
+
   // Custom confirmation modals (avoids iframe window.confirm blocking)
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
   const [showResetAllModal, setShowResetAllModal] = useState<boolean>(false);
@@ -93,15 +110,26 @@ export default function App() {
   const [statusType, setStatusType] = useState<'info' | 'ok' | 'err'>('info');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [lastAutoSaveTimestamp, setLastAutoSaveTimestamp] = useState<string | null>(() => {
-    return localStorage.getItem('last_post_330_autosave') || null;
-  });
 
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Active class lookup
+  const activeClass = useMemo(() => {
+    if (!classes.length) return null;
+    return classes.find((c) => c.id === activeClassId) || classes[0];
+  }, [classes, activeClassId]);
+
+  const roster = useMemo(() => {
+    return activeClass?.students || [];
+  }, [activeClass]);
+
+  const activeColorConfig = useMemo(() => {
+    const colorId = activeClass?.color || 'teal';
+    return CLASS_COLORS.find((c) => c.id === colorId) || CLASS_COLORS[0];
+  }, [activeClass?.color]);
+
   // Subscribe to Firebase Google Auth state
   useEffect(() => {
-    // Failsafe timeout: ensure we never hang on blank/loading screen if auth response is delayed
     const timeoutTimer = setTimeout(() => {
       setIsAuthLoading(false);
     }, 1500);
@@ -112,7 +140,6 @@ export default function App() {
       setIsAuthLoading(false);
       if (user) {
         setAuthError(null);
-        // Default display name if none set
         const defaultName = user.displayName || (user.email ? user.email.split('@')[0] : 'Teacher');
         const localTeacher = localStorage.getItem(`config:${user.uid}:teacherName`);
         setTeacherName(localTeacher || defaultName);
@@ -147,13 +174,11 @@ export default function App() {
       if (!currentUser) return;
       const uid = currentUser.uid;
 
-      // 1. Check local storage
       const localTeacher = localStorage.getItem(`config:${uid}:teacherName`);
       const localUrl = localStorage.getItem(`config:${uid}:webAppUrl`);
       if (localTeacher) setTeacherName(localTeacher);
       if (localUrl) setWebAppUrl(localUrl);
 
-      // 2. Fetch remote teacher config
       const remoteConfig = await getAppConfigFromFirestore(uid);
       if (remoteConfig) {
         if (remoteConfig.teacherName) {
@@ -172,92 +197,153 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Load grade data when grade, date, or teacher changes
-  const loadGradeData = useCallback(async (grade: number, dateISO: string, uid: string) => {
-    if (!uid) return;
+  // Load teacher's multiple classes from Firestore or bootstrap initial classes
+  useEffect(() => {
+    async function initTeacherClasses() {
+      if (!currentUser?.uid) return;
+      const uid = currentUser.uid;
+      setIsClassesLoading(true);
+
+      try {
+        const loadedClasses = await getClassesFromFirestore(uid);
+
+        if (loadedClasses && loadedClasses.length > 0) {
+          setClasses(loadedClasses);
+          const savedActiveClass = localStorage.getItem(`activeClassId:${uid}`);
+          if (savedActiveClass && loadedClasses.some((c) => c.id === savedActiveClass)) {
+            setActiveClassId(savedActiveClass);
+          } else {
+            setActiveClassId(loadedClasses[0].id);
+          }
+        } else {
+          // Bootstrap default starter classes (Grades 6 through 12) with existing rosters if any
+          const starterGrades = [6, 7, 8, 9, 10, 11, 12];
+          const initialClassDocs: ClassDoc[] = [];
+
+          for (let i = 0; i < starterGrades.length; i++) {
+            const g = starterGrades[i];
+            let classRoster: string[] = [];
+
+            // Check if user had existing roster in legacy grade store
+            const existingRemoteRoster = await getRosterFromFirestore(uid, g);
+            if (existingRemoteRoster && existingRemoteRoster.length > 0) {
+              classRoster = existingRemoteRoster;
+            } else {
+              const localRoster = localStorage.getItem(`roster:${uid}:${g}`);
+              if (localRoster) {
+                try {
+                  classRoster = JSON.parse(localRoster);
+                } catch {
+                  classRoster = DEFAULT_INITIAL_ROSTERS[g] || [];
+                }
+              } else {
+                classRoster = DEFAULT_INITIAL_ROSTERS[g] || [];
+              }
+            }
+
+            const newDoc: ClassDoc = {
+              id: `cls_grade_${g}`,
+              name: `Grade ${g}`,
+              grade: g,
+              period: `Period ${i + 1}`,
+              subject: 'General',
+              color: CLASS_COLORS[i % CLASS_COLORS.length].id,
+              students: classRoster,
+              createdAt: Date.now() + i,
+              updatedAt: Date.now() + i
+            };
+
+            await saveClassToFirestore(uid, newDoc);
+            initialClassDocs.push(newDoc);
+          }
+
+          setClasses(initialClassDocs);
+          // Default to Grade 8 (3rd index) or first class
+          const defaultActive = initialClassDocs.find((c) => c.grade === 8) || initialClassDocs[0];
+          setActiveClassId(defaultActive.id);
+          localStorage.setItem(`activeClassId:${uid}`, defaultActive.id);
+        }
+      } catch (err) {
+        console.error('Error initializing teacher classes:', err);
+      } finally {
+        setIsClassesLoading(false);
+      }
+    }
+
+    if (currentUser) {
+      initTeacherClasses();
+    }
+  }, [currentUser]);
+
+  // Load scores, history, and logged dates whenever activeClass or selectedDate changes
+  const loadClassScoresAndHistory = useCallback(async (currentClass: ClassDoc, dateISO: string, uid: string) => {
+    if (!uid || !currentClass) return;
     setIsSaving(true);
 
-    // 1. Load Roster: Try Firestore -> then LocalStorage -> then Defaults
-    let currentRoster: string[] = [];
-    const remoteRoster = await getRosterFromFirestore(uid, grade);
-    if (remoteRoster && remoteRoster.length > 0) {
-      currentRoster = remoteRoster;
-      localStorage.setItem(`roster:${uid}:${grade}`, JSON.stringify(currentRoster));
-    } else {
-      const localRoster = localStorage.getItem(`roster:${uid}:${grade}`);
-      if (localRoster) {
-        try {
-          currentRoster = JSON.parse(localRoster);
-        } catch {
-          currentRoster = DEFAULT_INITIAL_ROSTERS[grade] || [];
-        }
+    try {
+      // 1. Load Scores for this specific class and date
+      let currentScores: ScoresState = {};
+      const remoteScores = await getDailyScoresForClass(uid, currentClass.id, dateISO, currentClass.grade);
+      
+      if (remoteScores && Object.keys(remoteScores).length > 0) {
+        currentScores = remoteScores;
       } else {
-        currentRoster = DEFAULT_INITIAL_ROSTERS[grade] || [];
-        if (currentRoster.length > 0) {
-          saveRosterToFirestore(uid, grade, currentRoster);
-          localStorage.setItem(`roster:${uid}:${grade}`, JSON.stringify(currentRoster));
+        const localScores = localStorage.getItem(`scores:${uid}:${currentClass.id}:${dateISO}`);
+        if (localScores) {
+          try {
+            currentScores = JSON.parse(localScores);
+          } catch {
+            currentScores = {};
+          }
         }
       }
-    }
-    setRoster(currentRoster);
 
-    // 2. Load Scores: Try Firestore -> then LocalStorage -> then Defaults
-    let currentScores: ScoresState = {};
-    const remoteScores = await getDailyScoresFromFirestore(uid, grade, dateISO);
-    if (remoteScores && Object.keys(remoteScores).length > 0) {
-      currentScores = remoteScores;
-    } else {
-      const localScores = localStorage.getItem(`scores:${uid}:${grade}:${dateISO}`);
-      if (localScores) {
-        try {
-          currentScores = JSON.parse(localScores);
-        } catch {
-          currentScores = {};
+      // Default score 3 for any students without score today
+      currentClass.students.forEach((name) => {
+        if (!currentScores[name]) {
+          currentScores[name] = { engagement: '3', responsibility: '3', respect: '3' };
         }
-      }
+      });
+      setScores(currentScores);
+
+      // 2. Load Student History / Averages for this class
+      const classHistory = await getClassHistoryFromFirestore(uid, currentClass.id, currentClass.grade);
+      setHistory(classHistory);
+
+      // 3. Fetch available logged dates for this class
+      const dates = await getLoggedDatesForClass(uid, currentClass.id, currentClass.grade);
+      setLoggedDates(dates);
+    } catch (err) {
+      console.warn('Error loading class score data:', err);
+    } finally {
+      setIsSaving(false);
     }
-
-    // Ensure all roster members have default score 3 if unassigned
-    currentRoster.forEach((name) => {
-      if (!currentScores[name]) {
-        currentScores[name] = { engagement: '3', responsibility: '3', respect: '3' };
-      }
-    });
-    setScores(currentScores);
-
-    // 3. Load Student History / Averages for this teacher
-    const gradeHistory = await getGradeHistoryFromFirestore(uid, grade);
-    setHistory(gradeHistory);
-
-    // 4. Fetch available logged dates
-    const dates = await getLoggedDatesForGrade(uid, grade);
-    setLoggedDates(dates);
-
-    setIsSaving(false);
   }, []);
 
   useEffect(() => {
-    if (currentUser?.uid) {
-      loadGradeData(currentGrade, selectedDate, currentUser.uid);
+    if (currentUser?.uid && activeClass) {
+      loadClassScoresAndHistory(activeClass, selectedDate, currentUser.uid);
     }
-  }, [currentUser, currentGrade, selectedDate, loadGradeData]);
+  }, [currentUser, activeClass, selectedDate, loadClassScoresAndHistory]);
 
-  // Debounced auto-save scores to Firestore & LocalStorage for the current teacher
-  const triggerAutoSave = (newScores: ScoresState, updatedRoster = roster) => {
-    if (!currentUser?.uid) return;
+  // Debounced auto-save scores to Firestore & LocalStorage for the current active class
+  const triggerAutoSave = (newScores: ScoresState, updatedStudents = roster) => {
+    if (!currentUser?.uid || !activeClass) return;
     const uid = currentUser.uid;
+    const classId = activeClass.id;
+    const grade = activeClass.grade;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
     saveTimerRef.current = setTimeout(async () => {
       // Save locally
-      localStorage.setItem(`scores:${uid}:${currentGrade}:${selectedDate}`, JSON.stringify(newScores));
-      localStorage.setItem(`roster:${uid}:${currentGrade}`, JSON.stringify(updatedRoster));
+      localStorage.setItem(`scores:${uid}:${classId}:${selectedDate}`, JSON.stringify(newScores));
 
       // Save to Firestore
-      const ok = await saveDailyScoresToFirestore(
+      const ok = await saveDailyScoresForClass(
         uid,
-        currentGrade,
+        classId,
+        grade,
         selectedDate,
         dateDisplay,
         teacherName || currentUser.displayName || 'Teacher',
@@ -276,7 +362,7 @@ export default function App() {
 
   // Daily Post-3:30 PM Auto-Save Scheduler (runs every 30 seconds when tab is open)
   useEffect(() => {
-    if (!currentUser?.uid || roster.length === 0) return;
+    if (!currentUser?.uid || !activeClass || roster.length === 0) return;
 
     const checkAndAutoSavePost330 = async () => {
       const now = new Date();
@@ -284,20 +370,20 @@ export default function App() {
       const currentMinute = now.getMinutes();
       const todayISO = now.toISOString().slice(0, 10);
 
-      // Check if current user time is post 3:30 PM (15:30)
       const isPost330 = currentHour > 15 || (currentHour === 15 && currentMinute >= 30);
 
       if (isPost330) {
-        const lastSavedKey = `autosave_330:${currentUser.uid}:${todayISO}:${currentGrade}`;
+        const lastSavedKey = `autosave_330:${currentUser.uid}:${todayISO}:${activeClass.id}`;
         const alreadyRanToday = localStorage.getItem(lastSavedKey);
 
         if (!alreadyRanToday && Object.keys(scores).length > 0) {
           const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          console.log(`[AutoSave] Triggering daily 3:30 PM scheduled auto-save for Grade ${currentGrade} at ${timeStr}`);
+          console.log(`[AutoSave] Triggering daily 3:30 PM scheduled auto-save for ${activeClass.name} at ${timeStr}`);
 
-          const ok = await saveDailyScoresToFirestore(
+          const ok = await saveDailyScoresForClass(
             currentUser.uid,
-            currentGrade,
+            activeClass.id,
+            activeClass.grade,
             selectedDate,
             dateDisplay,
             teacherName || currentUser.displayName || 'Teacher',
@@ -306,7 +392,6 @@ export default function App() {
 
           if (ok) {
             localStorage.setItem(lastSavedKey, timeStr);
-            setLastAutoSaveTimestamp(`Today at ${timeStr}`);
             setSaveStatus(`Auto-saved at 3:30 PM milestone (${timeStr})`);
             setStatusType('ok');
           }
@@ -314,13 +399,10 @@ export default function App() {
       }
     };
 
-    // Run initial check
     checkAndAutoSavePost330();
-
-    // Check periodically every 30 seconds
     const interval = setInterval(checkAndAutoSavePost330, 30000);
     return () => clearInterval(interval);
-  }, [currentUser, currentGrade, selectedDate, dateDisplay, teacherName, scores, roster]);
+  }, [currentUser, activeClass, selectedDate, dateDisplay, teacherName, scores, roster]);
 
   // Google Sign In action
   const handleGoogleSignIn = async () => {
@@ -343,10 +425,108 @@ export default function App() {
   const handleSignOut = async () => {
     if (confirm('Are you sure you want to sign out?')) {
       await logOut();
-      setRoster([]);
+      setClasses([]);
+      setActiveClassId('');
       setScores({});
       setHistory({});
       setSettingsOpen(false);
+    }
+  };
+
+  // Class Management Handlers
+  const handleSelectClass = (classId: string) => {
+    setActiveClassId(classId);
+    if (currentUser?.uid) {
+      localStorage.setItem(`activeClassId:${currentUser.uid}`, classId);
+    }
+  };
+
+  const handleSaveClassFromModal = async (
+    classData: Omit<ClassDoc, 'createdAt' | 'updatedAt'> & { starterStudentsText?: string }
+  ) => {
+    if (!currentUser?.uid) return;
+    const uid = currentUser.uid;
+
+    let studentsList = classData.students || [];
+
+    // Parse starter students if provided in create mode
+    if (classData.starterStudentsText) {
+      const parsed = classData.starterStudentsText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      if (parsed.length > 0) {
+        studentsList = Array.from(new Set(parsed)).sort((a, b) => a.localeCompare(b));
+      }
+    }
+
+    const docToSave: ClassDoc = {
+      id: classData.id,
+      name: classData.name,
+      grade: classData.grade,
+      period: classData.period,
+      subject: classData.subject,
+      color: classData.color || 'teal',
+      students: studentsList,
+      createdAt: classModal.targetClass?.createdAt || Date.now(),
+      updatedAt: Date.now()
+    };
+
+    const ok = await saveClassToFirestore(uid, docToSave);
+    if (ok) {
+      setClasses((prev) => {
+        const index = prev.findIndex((c) => c.id === docToSave.id);
+        if (index >= 0) {
+          const updated = [...prev];
+          updated[index] = docToSave;
+          return updated;
+        }
+        return [...prev, docToSave];
+      });
+
+      // Switch to the newly created / edited class
+      setActiveClassId(docToSave.id);
+      localStorage.setItem(`activeClassId:${uid}`, docToSave.id);
+
+      setSaveStatus(`Class "${docToSave.name}" saved.`);
+      setStatusType('ok');
+    }
+  };
+
+  const handleDeleteClass = async (classId: string) => {
+    if (!currentUser?.uid) return;
+    const uid = currentUser.uid;
+
+    const ok = await deleteClassFromFirestore(uid, classId);
+    if (ok) {
+      const remaining = classes.filter((c) => c.id !== classId);
+      setClasses(remaining);
+
+      if (remaining.length > 0) {
+        const nextActive = remaining[0].id;
+        setActiveClassId(nextActive);
+        localStorage.setItem(`activeClassId:${uid}`, nextActive);
+      } else {
+        // If teacher deleted all classes, auto-create one fresh class
+        const fallbackClass: ClassDoc = {
+          id: `cls_${Date.now()}`,
+          name: 'Period 1',
+          grade: 8,
+          period: 'Period 1',
+          subject: 'General',
+          color: 'teal',
+          students: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        await saveClassToFirestore(uid, fallbackClass);
+        setClasses([fallbackClass]);
+        setActiveClassId(fallbackClass.id);
+        localStorage.setItem(`activeClassId:${uid}`, fallbackClass.id);
+      }
+
+      setSaveStatus('Class deleted.');
+      setStatusType('ok');
     }
   };
 
@@ -366,7 +546,7 @@ export default function App() {
     return roster.length ? Math.round((scoredCount / roster.length) * 100) : 0;
   }, [roster.length, scoredCount]);
 
-  // Class averages for current grade
+  // Class averages for current active class
   const classAverages = useMemo(() => {
     const sums: Record<CategoryKey, number> = { engagement: 0, responsibility: 0, respect: 0 };
     const counts: Record<CategoryKey, number> = { engagement: 0, responsibility: 0, respect: 0 };
@@ -424,28 +604,34 @@ export default function App() {
     setStudentToDelete(student);
   };
 
-  // Confirm and perform student removal
+  // Confirm and perform student removal from active class
   const handleConfirmRemoveStudent = async () => {
-    if (!currentUser?.uid || !studentToDelete) return;
+    if (!currentUser?.uid || !studentToDelete || !activeClass) return;
     const student = studentToDelete;
-    const updatedRoster = roster.filter((n) => n !== student);
+    const updatedStudents = roster.filter((n) => n !== student);
     const newScores = { ...scores };
     delete newScores[student];
 
-    setRoster(updatedRoster);
+    const updatedClassDoc: ClassDoc = {
+      ...activeClass,
+      students: updatedStudents,
+      updatedAt: Date.now()
+    };
+
+    setClasses((prev) => prev.map((c) => (c.id === activeClass.id ? updatedClassDoc : c)));
     setScores(newScores);
     setStudentToDelete(null);
 
-    await saveRosterToFirestore(currentUser.uid, currentGrade, updatedRoster);
-    triggerAutoSave(newScores, updatedRoster);
-    setSaveStatus(`Removed ${student} from Grade ${currentGrade}`);
+    await saveClassToFirestore(currentUser.uid, updatedClassDoc);
+    triggerAutoSave(newScores, updatedStudents);
+    setSaveStatus(`Removed ${student} from ${activeClass.name}`);
     setStatusType('ok');
   };
 
-  // Add single student
+  // Add single student to active class
   const handleAddStudent = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!currentUser?.uid) return;
+    if (!currentUser?.uid || !activeClass) return;
     const name = newStudentName.trim();
     if (!name) return;
 
@@ -454,25 +640,31 @@ export default function App() {
       return;
     }
 
-    const updatedRoster = [...roster, name].sort((a, b) => a.localeCompare(b));
+    const updatedStudents = [...roster, name].sort((a, b) => a.localeCompare(b));
     const newScores: ScoresState = {
       ...scores,
       [name]: { engagement: '3', responsibility: '3', respect: '3' }
     };
 
-    setRoster(updatedRoster);
+    const updatedClassDoc: ClassDoc = {
+      ...activeClass,
+      students: updatedStudents,
+      updatedAt: Date.now()
+    };
+
+    setClasses((prev) => prev.map((c) => (c.id === activeClass.id ? updatedClassDoc : c)));
     setScores(newScores);
     setNewStudentName('');
 
-    await saveRosterToFirestore(currentUser.uid, currentGrade, updatedRoster);
-    triggerAutoSave(newScores, updatedRoster);
-    setSaveStatus(`Added ${name} to Grade ${currentGrade}`);
+    await saveClassToFirestore(currentUser.uid, updatedClassDoc);
+    triggerAutoSave(newScores, updatedStudents);
+    setSaveStatus(`Added ${name} to ${activeClass.name}`);
     setStatusType('ok');
   };
 
-  // Bulk add students
+  // Bulk add students to active class
   const handleBulkAdd = async () => {
-    if (!currentUser?.uid) return;
+    if (!currentUser?.uid || !activeClass) return;
     const lines = bulkInput
       .split('\n')
       .map((l) => l.trim())
@@ -481,35 +673,41 @@ export default function App() {
     if (lines.length === 0) return;
 
     const mergedSet = new Set([...roster, ...lines]);
-    const updatedRoster = Array.from(mergedSet).sort((a, b) => a.localeCompare(b));
+    const updatedStudents = Array.from(mergedSet).sort((a, b) => a.localeCompare(b));
 
     const newScores = { ...scores };
-    updatedRoster.forEach((name) => {
+    updatedStudents.forEach((name) => {
       if (!newScores[name]) {
         newScores[name] = { engagement: '3', responsibility: '3', respect: '3' };
       }
     });
 
-    setRoster(updatedRoster);
+    const updatedClassDoc: ClassDoc = {
+      ...activeClass,
+      students: updatedStudents,
+      updatedAt: Date.now()
+    };
+
+    setClasses((prev) => prev.map((c) => (c.id === activeClass.id ? updatedClassDoc : c)));
     setScores(newScores);
     setBulkInput('');
     setShowBulkAdd(false);
 
-    await saveRosterToFirestore(currentUser.uid, currentGrade, updatedRoster);
-    triggerAutoSave(newScores, updatedRoster);
-    setSaveStatus(`Added ${lines.length} students to Grade ${currentGrade}`);
+    await saveClassToFirestore(currentUser.uid, updatedClassDoc);
+    triggerAutoSave(newScores, updatedStudents);
+    setSaveStatus(`Added ${lines.length} students to ${activeClass.name}`);
     setStatusType('ok');
   };
 
-  // Open confirmation for reset all
+  // Open confirmation for reset all in active class
   const handleClearAllToThree = () => {
     if (roster.length === 0) return;
     setShowResetAllModal(true);
   };
 
-  // Perform reset all students in current grade to 3
+  // Perform reset all students in active class to 3
   const handleConfirmResetAllToThree = () => {
-    if (roster.length === 0) return;
+    if (roster.length === 0 || !activeClass) return;
     const newScores: ScoresState = {};
     roster.forEach((name) => {
       newScores[name] = { engagement: '3', responsibility: '3', respect: '3' };
@@ -517,7 +715,7 @@ export default function App() {
     setScores(newScores);
     triggerAutoSave(newScores);
     setShowResetAllModal(false);
-    setSaveStatus(`Reset all ${roster.length} students in Grade ${currentGrade} to 3.`);
+    setSaveStatus(`Reset all ${roster.length} students in ${activeClass.name} to 3.`);
     setStatusType('info');
   };
 
@@ -537,9 +735,9 @@ export default function App() {
     return sum / count;
   };
 
-  // Explicit Save button to Firestore and optionally Google Sheet
+  // Manual Save button to Firestore and optionally Google Sheet
   const handleManualSave = async () => {
-    if (!currentUser?.uid) return;
+    if (!currentUser?.uid || !activeClass) return;
     const uid = currentUser.uid;
 
     if (!teacherName.trim()) {
@@ -551,24 +749,25 @@ export default function App() {
     }
 
     setIsSaving(true);
-    setSaveStatus('Saving scores to Firestore…');
+    setSaveStatus(`Saving scores for ${activeClass.name} to Firestore…`);
     setStatusType('info');
 
-    // 1. Save to Firestore
-    const ok = await saveDailyScoresToFirestore(
+    // 1. Save scores to Firestore
+    const ok = await saveDailyScoresForClass(
       uid,
-      currentGrade,
+      activeClass.id,
+      activeClass.grade,
       selectedDate,
       dateDisplay,
       teacherName,
       scores
     );
 
-    await saveRosterToFirestore(uid, currentGrade, roster);
+    await saveClassToFirestore(uid, activeClass);
     await saveAppConfigToFirestore(uid, { teacherName, webAppUrl });
 
     // Refresh history
-    const updatedHistory = await getGradeHistoryFromFirestore(uid, currentGrade);
+    const updatedHistory = await getClassHistoryFromFirestore(uid, activeClass.id, activeClass.grade);
     setHistory(updatedHistory);
 
     // 2. If WebAppUrl provided, also send to Google Apps Script
@@ -590,7 +789,10 @@ export default function App() {
           body: JSON.stringify({
             date: selectedDate,
             dateDisplay,
-            grade: currentGrade,
+            className: activeClass.name,
+            grade: activeClass.grade,
+            period: activeClass.period || '',
+            subject: activeClass.subject || '',
             teacher: teacherName,
             teacherEmail: currentUser.email,
             entries
@@ -604,7 +806,7 @@ export default function App() {
 
     setIsSaving(false);
     if (ok) {
-      setSaveStatus(`Successfully saved Grade ${currentGrade} scores to Firestore${sheetNote}!`);
+      setSaveStatus(`Successfully saved ${activeClass.name} scores to Firestore${sheetNote}!`);
       setStatusType('ok');
     } else {
       setSaveStatus('Saved locally. Firestore connection had a hiccup.');
@@ -612,9 +814,9 @@ export default function App() {
     }
   };
 
-  // Import / Sync Roster & Averages from Google Sheet if URL provided
+  // Import / Sync Roster from Google Sheet if URL provided
   const handleSyncWithSheet = async () => {
-    if (!currentUser?.uid) return;
+    if (!currentUser?.uid || !activeClass) return;
     if (!webAppUrl) {
       setSettingsOpen(true);
       setSaveStatus('Enter your Google Apps Script Web App URL in settings first.');
@@ -632,21 +834,24 @@ export default function App() {
       const rosters = data.rosters || {};
 
       let importedCount = 0;
-      for (const gradeKey of Object.keys(rosters)) {
-        const grade = parseInt(gradeKey, 10);
-        if (!GRADES.includes(grade)) continue;
+      // Match by grade or class name
+      const targetNames = rosters[String(activeClass.grade)] || rosters[activeClass.name] || [];
+      const parsedNames = (targetNames || []).map((n: string) => String(n).trim()).filter(Boolean);
 
-        const names = (rosters[gradeKey] || []).map((n: string) => String(n).trim()).filter(Boolean);
-        if (names.length) {
-          const merged = Array.from(new Set([...(roster || []), ...names])).sort((a, b) => a.localeCompare(b));
-          await saveRosterToFirestore(currentUser.uid, grade, merged);
-          importedCount += names.length;
-        }
+      if (parsedNames.length > 0) {
+        const merged = Array.from(new Set([...roster, ...parsedNames])).sort((a, b) => a.localeCompare(b));
+        const updatedDoc: ClassDoc = {
+          ...activeClass,
+          students: merged,
+          updatedAt: Date.now()
+        };
+        await saveClassToFirestore(currentUser.uid, updatedDoc);
+        setClasses((prev) => prev.map((c) => (c.id === activeClass.id ? updatedDoc : c)));
+        importedCount = parsedNames.length;
       }
 
       setSaveStatus(`Sync complete! Synced ${importedCount} student names from Sheet.`);
       setStatusType('ok');
-      await loadGradeData(currentGrade, selectedDate, currentUser.uid);
     } catch (err) {
       setSaveStatus('Could not sync with Google Sheet. Please check the Web App URL.');
       setStatusType('err');
@@ -668,9 +873,23 @@ export default function App() {
     setSelectedDate(today);
   };
 
-  // Export CSV
+  // Export CSV for active class
   const handleExportCSV = () => {
-    const headers = ['Student Name', 'Grade', 'Date', 'Engagement', 'Responsibility', 'Respect', 'Engagement Avg', 'Responsibility Avg', 'Respect Avg'];
+    if (!activeClass) return;
+    const headers = [
+      'Student Name',
+      'Class Name',
+      'Grade',
+      'Period',
+      'Subject',
+      'Date',
+      'Engagement',
+      'Responsibility',
+      'Respect',
+      'Engagement Avg',
+      'Responsibility Avg',
+      'Respect Avg'
+    ];
     const rows = roster.map((name) => {
       const s = scores[name] || { engagement: '', responsibility: '', respect: '' };
       const engAvg = computeStudentCategoryAverage(name, 'engagement')?.toFixed(1) || '';
@@ -678,7 +897,10 @@ export default function App() {
       const respkAvg = computeStudentCategoryAverage(name, 'respect')?.toFixed(1) || '';
       return [
         `"${name}"`,
-        currentGrade,
+        `"${activeClass.name}"`,
+        activeClass.grade,
+        `"${activeClass.period || ''}"`,
+        `"${activeClass.subject || ''}"`,
         selectedDate,
         s.engagement,
         s.responsibility,
@@ -693,7 +915,8 @@ export default function App() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `process_scores_grade_${currentGrade}_${selectedDate}.csv`);
+    const safeClassName = activeClass.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    link.setAttribute('download', `process_scores_${safeClassName}_${selectedDate}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -728,32 +951,32 @@ export default function App() {
               Process Score Checker
             </h1>
             <p className="text-xs text-[#5C626A] font-medium leading-relaxed">
-              Teacher Learning Skills evaluation with private cloud storage and Google authentication.
+              Teacher Learning Skills evaluation with multiple class sections and Google authentication.
             </p>
           </div>
 
-          {/* Privacy & Isolation Highlight */}
+          {/* Privacy & Feature Highlights */}
           <div className="bg-[#F6F5F0] border-2 border-[#18191B] rounded-2xl p-4 space-y-3">
             <div className="flex items-start gap-3">
               <div className="w-7 h-7 rounded-lg bg-[#E8F2F0] border border-[#18191B] flex items-center justify-center text-[#1F6F6B] flex-shrink-0 mt-0.5">
-                <Lock className="w-4 h-4 stroke-[2.5]" />
+                <Layers className="w-4 h-4 stroke-[2.5]" />
               </div>
               <div>
-                <h3 className="text-xs font-black text-[#18191B] uppercase tracking-wider">Isolated Teacher Accounts</h3>
+                <h3 className="text-xs font-black text-[#18191B] uppercase tracking-wider">Multiple Classes Per Teacher</h3>
                 <p className="text-[11px] text-[#5C626A] font-medium mt-0.5 leading-snug">
-                  Your student rosters, daily scores, and historical averages are strictly private to your Google profile. Other teachers cannot view your accounts.
+                  Create and manage distinct class sections, periods, and subjects with custom student rosters in your teacher account.
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3 pt-1 border-t border-[#18191B]/15">
               <div className="w-7 h-7 rounded-lg bg-[#E8F2F0] border border-[#18191B] flex items-center justify-center text-[#1F6F6B] flex-shrink-0 mt-0.5">
-                <ShieldCheck className="w-4 h-4 stroke-[2.5]" />
+                <Lock className="w-4 h-4 stroke-[2.5]" />
               </div>
               <div>
-                <h3 className="text-xs font-black text-[#18191B] uppercase tracking-wider">Secure Google Sign-In</h3>
+                <h3 className="text-xs font-black text-[#18191B] uppercase tracking-wider">Isolated Private Data</h3>
                 <p className="text-[11px] text-[#5C626A] font-medium mt-0.5 leading-snug">
-                  Sign in with any standard Gmail or school Google Workspace account.
+                  Your student rosters and daily scores are securely isolated in your private Firestore collection.
                 </p>
               </div>
             </div>
@@ -808,12 +1031,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F6F5F0] text-[#18191B] font-sans pb-36 selection:bg-[#18191B] selection:text-white">
       {/* Main Container */}
-      <div className="max-w-[980px] mx-auto px-4 sm:px-6 pt-6 pb-12">
+      <div className="max-w-[980px] mx-auto px-4 sm:px-6 pt-5 pb-12">
         {/* Top Header */}
-        <header className="sticky top-0 z-20 bg-[#F6F5F0]/95 backdrop-blur-md border-b-2 border-[#18191B] pt-4 pb-4 mb-6 transition-all">
+        <header className="sticky top-0 z-20 bg-[#F6F5F0]/95 backdrop-blur-md border-b-2 border-[#18191B] pt-3 pb-4 mb-5 transition-all">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <h1 className="font-serif-fraunces font-black text-2xl sm:text-3xl tracking-tight text-[#18191B] flex items-center gap-2.5">
+              <h1 className="font-serif-fraunces font-black text-2xl sm:text-3xl tracking-tight text-[#18191B] flex items-center gap-2">
                 <span className="text-[#1F6F6B] font-black underline decoration-4 decoration-[#18191B]">Process Score</span>
                 <span className="font-extrabold text-[#18191B]">Daily Checker</span>
               </h1>
@@ -824,7 +1047,7 @@ export default function App() {
             </div>
 
             {/* Authenticated Teacher Profile Badge & Date Navigator */}
-            <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2.5 flex-wrap">
               {/* Teacher Avatar & Sign Out */}
               <div className="flex items-center gap-2 bg-white border-2 border-[#18191B] rounded-lg px-2.5 py-1 bold-shadow-sm">
                 {currentUser.photoURL ? (
@@ -902,8 +1125,119 @@ export default function App() {
             </div>
           </div>
 
-          {/* Controls bar */}
-          <div className="flex items-center gap-3 mt-4 flex-wrap">
+          {/* Teacher Class Switcher Bar */}
+          <div className="mt-4 p-3 bg-white border-2 border-[#18191B] rounded-xl bold-shadow flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              {/* Class Selection Dropdown & Info */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-[#1F6F6B] stroke-[2.5]" />
+                  <span className="text-[11px] font-black uppercase tracking-wider text-[#18191B]">Class:</span>
+                </div>
+
+                <div className="relative">
+                  <select
+                    id="classSelectorSelect"
+                    value={activeClass?.id || ''}
+                    onChange={(e) => handleSelectClass(e.target.value)}
+                    className="font-black text-sm px-3.5 py-1.5 pr-8 rounded-lg border-2 border-[#18191B] bg-[#F6F5F0] text-[#18191B] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] transition appearance-none"
+                  >
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.period ? `(${c.period})` : ''} • Grade {c.grade} ({c.students.length} students)
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#18191B]" />
+                </div>
+
+                {/* Edit Class button */}
+                {activeClass && (
+                  <button
+                    id="editClassBtn"
+                    onClick={() =>
+                      setClassModal({
+                        isOpen: true,
+                        mode: 'edit',
+                        targetClass: activeClass
+                      })
+                    }
+                    className="p-1.5 rounded-lg border-2 border-[#18191B] bg-white hover:bg-[#E8F2F0] text-[#18191B] transition cursor-pointer"
+                    title={`Edit ${activeClass.name} details, grade, or color`}
+                  >
+                    <Edit2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                  </button>
+                )}
+
+                {/* New Class button */}
+                <button
+                  id="newClassBtn"
+                  onClick={() =>
+                    setClassModal({
+                      isOpen: true,
+                      mode: 'create',
+                      targetClass: null
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-lg bg-[#18191B] hover:bg-[#1F6F6B] text-white border-2 border-[#18191B] text-xs font-black uppercase tracking-wider transition bold-shadow-sm cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5"
+                  title="Create a new class, section, or subject"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>New Class</span>
+                </button>
+              </div>
+
+              {/* Progress indicator */}
+              <div className="flex items-center gap-3 text-xs text-[#18191B] font-extrabold bg-[#F6F5F0] px-3 py-1.5 rounded-lg border-2 border-[#18191B]/30 ml-auto">
+                <span id="progressText" className="font-mono-jb font-bold text-xs">
+                  {scoredCount} / {roster.length} SCORED
+                </span>
+                <div className="w-20 sm:w-24 h-2.5 bg-[#E4DFC8] rounded-full overflow-hidden border border-[#18191B]">
+                  <div
+                    id="progressFill"
+                    className="h-full bg-[#1F6F6B] transition-all duration-300 ease-out"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Switch Class Pills */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1 scrollbar-thin">
+              {classes.map((c) => {
+                const isActive = c.id === activeClass?.id;
+                const col = CLASS_COLORS.find((clr) => clr.id === c.color) || CLASS_COLORS[0];
+                return (
+                  <button
+                    key={c.id}
+                    id={`classPill-${c.id}`}
+                    onClick={() => handleSelectClass(c.id)}
+                    className={`flex items-center gap-2 px-3 py-1 rounded-lg border-2 text-xs font-black whitespace-nowrap transition cursor-pointer ${
+                      isActive
+                        ? 'border-[#18191B] bg-[#18191B] text-white bold-shadow-sm -translate-y-0.5'
+                        : 'border-[#18191B]/30 bg-[#F6F5F0] text-[#18191B] hover:border-[#18191B] hover:bg-white'
+                    }`}
+                  >
+                    <span
+                      className="w-2.5 h-2.5 rounded-full border border-black/20 flex-shrink-0"
+                      style={{ backgroundColor: col.pillBg }}
+                    />
+                    <span>{c.name}</span>
+                    <span
+                      className={`text-[10px] font-mono-jb px-1.5 py-0.2 rounded ${
+                        isActive ? 'bg-white/20 text-white' : 'bg-black/5 text-[#5C626A]'
+                      }`}
+                    >
+                      {c.students.length}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Secondary Controls Bar */}
+          <div className="flex items-center gap-3 mt-3 flex-wrap">
             <div className="flex items-center gap-1.5">
               <label htmlFor="teacherNameInput" className="text-[11px] font-black text-[#18191B] uppercase tracking-wider">
                 Teacher:
@@ -924,33 +1258,15 @@ export default function App() {
                     saveAppConfigToFirestore(currentUser.uid, { teacherName });
                   }
                 }}
-                className="font-bold text-sm px-3 py-1.5 rounded-lg border-2 border-[#18191B] bg-white text-[#18191B] w-44 focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
+                className="font-bold text-sm px-3 py-1.5 rounded-lg border-2 border-[#18191B] bg-white text-[#18191B] w-40 focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
               />
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <label htmlFor="gradeSelect" className="text-[11px] font-black text-[#18191B] uppercase tracking-wider">
-                Grade:
-              </label>
-              <select
-                id="gradeSelect"
-                value={currentGrade}
-                onChange={(e) => setCurrentGrade(parseInt(e.target.value, 10))}
-                className="font-black text-sm px-3.5 py-1.5 pr-8 rounded-lg border-2 border-[#18191B] bg-white text-[#18191B] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
-              >
-                {GRADES.map((g) => (
-                  <option key={g} value={g} className="font-bold">
-                    Grade {g}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <button
               id="clearAllBtn"
               onClick={handleClearAllToThree}
               className="px-3.5 py-1.5 rounded-lg border-2 border-[#18191B] bg-white hover:bg-[#FBEBE7] hover:text-[#D94826] text-[#18191B] font-bold text-xs transition bold-shadow-sm hover:translate-x-0.5 hover:translate-y-0.5 active:translate-x-0 active:translate-y-0 cursor-pointer flex items-center gap-1.5"
-              title="Reset every student in this grade back to 3"
+              title="Reset every student in this class back to 3"
             >
               <RotateCcw className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Reset all to 3</span>
@@ -967,19 +1283,13 @@ export default function App() {
               <Settings className="w-4 h-4 stroke-[2.5]" />
             </button>
 
-            {/* Progress indicator */}
-            <div className="ml-auto flex items-center gap-3 text-xs text-[#18191B] font-extrabold bg-white px-3 py-1.5 rounded-lg border-2 border-[#18191B] bold-shadow-sm">
-              <span id="progressText" className="font-mono-jb font-bold text-xs">
-                {scoredCount} / {roster.length} SCORED
-              </span>
-              <div className="w-24 h-2.5 bg-[#E4DFC8] rounded-full overflow-hidden border border-[#18191B]">
-                <div
-                  id="progressFill"
-                  className="h-full bg-[#1F6F6B] transition-all duration-300 ease-out"
-                  style={{ width: `${progressPercent}%` }}
-                />
+            {activeClass && (
+              <div className="ml-auto flex items-center gap-2 text-xs font-mono-jb text-[#5C626A]">
+                <span className="font-bold text-[#18191B]">Grade {activeClass.grade}</span>
+                {activeClass.period && <span>• {activeClass.period}</span>}
+                {activeClass.subject && <span>• {activeClass.subject}</span>}
               </div>
-            </div>
+            )}
           </div>
 
           {/* Settings / Integrations Panel */}
@@ -995,7 +1305,7 @@ export default function App() {
                     <span>Teacher Account &amp; Sync Settings</span>
                   </h3>
                   <p className="text-xs text-[#5C626A] mt-1 font-medium leading-relaxed max-w-2xl">
-                    Signed in as <strong className="text-[#18191B]">{currentUser.email}</strong>. All student rosters, daily scores, and multi-day averages are stored strictly in your private teacher collection.
+                    Signed in as <strong className="text-[#18191B]">{currentUser.email}</strong>. All {classes.length} class rosters, daily scores, and multi-day averages are stored strictly in your private teacher collection.
                   </p>
                 </div>
                 <button
@@ -1063,7 +1373,7 @@ export default function App() {
               {showBulkAdd && (
                 <div className="pt-3 border-t-2 border-[#18191B] space-y-2">
                   <label htmlFor="bulkTextarea" className="text-xs font-black text-[#18191B] uppercase tracking-wider">
-                    Paste student names (one per line, e.g. "Last, First"):
+                    Paste student names for {activeClass?.name} (one per line, e.g. "Last, First"):
                   </label>
                   <textarea
                     id="bulkTextarea"
@@ -1086,7 +1396,7 @@ export default function App() {
                       onClick={handleBulkAdd}
                       className="px-4 py-1.5 bg-[#18191B] text-white rounded-lg text-xs font-black hover:bg-[#1F6F6B] border-2 border-[#18191B] bold-shadow-sm cursor-pointer transition"
                     >
-                      Add to Grade {currentGrade} Roster
+                      Add to {activeClass?.name} Roster
                     </button>
                   </div>
                 </div>
@@ -1103,7 +1413,7 @@ export default function App() {
               type="text"
               value={newStudentName}
               onChange={(e) => setNewStudentName(e.target.value)}
-              placeholder="Add student to this grade (e.g. Last, First)"
+              placeholder={`Add student to ${activeClass?.name || 'this class'} (e.g. Last, First)`}
               className="flex-1 px-4 py-2.5 border-2 border-[#18191B] rounded-lg text-sm bg-white font-bold placeholder:text-[#5C626A]/70 focus:outline-none focus:ring-2 focus:ring-[#1F6F6B] bold-shadow-sm transition"
             />
             <button
@@ -1130,11 +1440,13 @@ export default function App() {
         </div>
 
         {/* Class Averages Bar */}
-        {roster.length > 0 && (
+        {roster.length > 0 && activeClass && (
           <div className="mb-6 bg-white border-2 border-[#18191B] rounded-xl px-5 py-3.5 flex items-center justify-between gap-4 flex-wrap bold-shadow">
             <div className="flex items-center gap-2.5">
               <Award className="w-5 h-5 text-[#1F6F6B] stroke-[2.5]" />
-              <span className="font-black text-sm uppercase tracking-wider text-[#18191B]">Grade {currentGrade} Class Daily Average:</span>
+              <span className="font-black text-sm uppercase tracking-wider text-[#18191B]">
+                {activeClass.name} Daily Average:
+              </span>
             </div>
             <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
               <div className="flex items-center gap-2 text-xs font-mono-jb">
@@ -1164,9 +1476,9 @@ export default function App() {
           {roster.length === 0 ? (
             <div className="py-14 px-6 text-center text-[#5C626A] border-2 border-dashed border-[#18191B] rounded-2xl bg-white bold-shadow">
               <strong className="block text-[#18191B] font-serif-fraunces text-xl mb-1.5 font-black">
-                No students in Grade {currentGrade} yet
+                No students in {activeClass?.name || 'this class'} yet
               </strong>
-              <p className="text-sm font-medium">Add students above or paste a class list in settings to start tracking this grade.</p>
+              <p className="text-sm font-medium">Add students above or paste a student list in settings to start tracking process scores.</p>
             </div>
           ) : (
             roster.map((name) => {
@@ -1213,7 +1525,7 @@ export default function App() {
                         id={`removeBtn-${name.replace(/\s+/g, '_')}`}
                         onClick={() => handleInitiateRemoveStudent(name)}
                         className="text-[10px] font-bold text-[#5C626A] hover:text-[#D94826] hover:bg-[#FBEBE7] px-2.5 py-0.5 rounded-md border border-transparent hover:border-[#D94826]/40 transition cursor-pointer flex items-center gap-1.5 w-fit"
-                        title={`Remove ${name} from this grade`}
+                        title={`Remove ${name} from ${activeClass?.name}`}
                       >
                         <Trash2 className="w-3 h-3 stroke-[2.5]" />
                         <span>Remove student</span>
@@ -1311,6 +1623,17 @@ export default function App() {
         </div>
       </div>
 
+      {/* Class Modal (Create / Edit) */}
+      <ClassModal
+        isOpen={classModal.isOpen}
+        mode={classModal.mode}
+        initialClass={classModal.targetClass}
+        existingClassesCount={classes.length}
+        onClose={() => setClassModal({ isOpen: false, mode: 'create', targetClass: null })}
+        onSave={handleSaveClassFromModal}
+        onDelete={handleDeleteClass}
+      />
+
       {/* Confirmation Modal: Remove Student */}
       {studentToDelete && (
         <div className="fixed inset-0 z-50 bg-[#18191B]/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
@@ -1321,15 +1644,15 @@ export default function App() {
               </div>
               <div>
                 <h3 className="font-serif-fraunces font-black text-lg text-[#18191B]">Remove Student</h3>
-                <p className="text-xs text-[#5C626A] font-medium">Grade {currentGrade} Roster</p>
+                <p className="text-xs text-[#5C626A] font-medium">{activeClass?.name} Roster</p>
               </div>
             </div>
 
             <p className="text-sm text-[#18191B] font-medium leading-relaxed">
-              Are you sure you want to remove <strong className="font-black text-[#18191B] underline">{studentToDelete}</strong> from Grade {currentGrade}?
+              Are you sure you want to remove <strong className="font-black text-[#18191B] underline">{studentToDelete}</strong> from {activeClass?.name}?
             </p>
             <p className="text-[11px] text-[#5C626A] font-medium">
-              This will remove them from the grade roster and delete their today's temporary scores.
+              This will remove them from this class's roster and delete their today's temporary scores.
             </p>
 
             <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -1363,15 +1686,15 @@ export default function App() {
               </div>
               <div>
                 <h3 className="font-serif-fraunces font-black text-lg text-[#18191B]">Reset All Scores to 3</h3>
-                <p className="text-xs text-[#5C626A] font-medium">Grade {currentGrade} • {dateDisplay}</p>
+                <p className="text-xs text-[#5C626A] font-medium">{activeClass?.name} • {dateDisplay}</p>
               </div>
             </div>
 
             <p className="text-sm text-[#18191B] font-medium leading-relaxed">
-              Are you sure you want to reset scores for all <strong className="font-black">{roster.length}</strong> students in Grade {currentGrade} back to <strong className="font-black">3</strong> for today?
+              Are you sure you want to reset scores for all <strong className="font-black">{roster.length}</strong> students in {activeClass?.name} back to <strong className="font-black">3</strong> for today?
             </p>
             <p className="text-[11px] text-[#5C626A] font-medium">
-              This will update today's Engagement, Responsibility, and Respect scores to standard grade-level expectation (3).
+              This will update today's Engagement, Responsibility, and Respect scores to standard expectation (3).
             </p>
 
             <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -1431,7 +1754,7 @@ export default function App() {
             <button
               id="submitBtn"
               onClick={handleManualSave}
-              disabled={isSaving}
+              disabled={isSaving || !activeClass}
               className="px-6 py-2.5 rounded-lg bg-[#18191B] hover:bg-[#1F6F6B] text-white font-black text-xs uppercase tracking-wider transition bold-shadow border-2 border-[#18191B] hover:border-[#1F6F6B] active:translate-x-0.5 active:translate-y-0.5 disabled:opacity-50 cursor-pointer flex items-center gap-2"
             >
               <Database className="w-4 h-4 stroke-[2.5] text-[#5EEAD4]" />

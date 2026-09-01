@@ -5,6 +5,7 @@ import {
   doc, 
   getDoc, 
   setDoc, 
+  deleteDoc,
   getDocs, 
   query, 
   where,
@@ -26,7 +27,8 @@ import type {
   ScoresState, 
   GradeHistoryState,
   CategoryKey,
-  TeacherProfile
+  TeacherProfile,
+  ClassDoc
 } from '../types';
 
 // Hardcoded verified configuration so GitHub Actions never fails on missing external files
@@ -130,9 +132,229 @@ export async function syncTeacherProfile(user: User): Promise<void> {
 }
 
 // Sub-collections under `/users/{userId}/...`
+const CLASSES_COL = 'classes';
 const ROSTERS_COL = 'rosters';
 const DAILY_LOGS_COL = 'dailyScores';
 const APP_CONFIG_COL = 'appConfig';
+
+/**
+ * Fetch all classes for an authenticated teacher
+ */
+export async function getClassesFromFirestore(userId: string): Promise<ClassDoc[]> {
+  if (!userId) return [];
+  try {
+    const q = collection(db, 'users', userId, CLASSES_COL);
+    const snap = await getDocs(q);
+    const classes: ClassDoc[] = [];
+    snap.forEach((docSnap) => {
+      classes.push(docSnap.data() as ClassDoc);
+    });
+    return classes.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  } catch (error) {
+    console.warn('Firestore getClasses error:', error);
+    return [];
+  }
+}
+
+/**
+ * Save / Create class in Firestore
+ */
+export async function saveClassToFirestore(userId: string, classData: ClassDoc): Promise<boolean> {
+  if (!userId || !classData.id) return false;
+  try {
+    const docRef = doc(db, 'users', userId, CLASSES_COL, classData.id);
+    await setDoc(docRef, {
+      ...classData,
+      updatedAt: Date.now()
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error('Firestore saveClass error:', error);
+    return false;
+  }
+}
+
+/**
+ * Delete class in Firestore
+ */
+export async function deleteClassFromFirestore(userId: string, classId: string): Promise<boolean> {
+  if (!userId || !classId) return false;
+  try {
+    const docRef = doc(db, 'users', userId, CLASSES_COL, classId);
+    await deleteDoc(docRef);
+    return true;
+  } catch (error) {
+    console.error('Firestore deleteClass error:', error);
+    return false;
+  }
+}
+
+/**
+ * Fetch daily scores for a specific class and date for an authenticated teacher
+ */
+export async function getDailyScoresForClass(
+  userId: string, 
+  classId: string, 
+  dateISO: string, 
+  legacyGrade?: number
+): Promise<ScoresState | null> {
+  if (!userId) return null;
+  try {
+    const docId = `class_${classId}_date_${dateISO}`;
+    const docRef = doc(db, 'users', userId, DAILY_LOGS_COL, docId);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data = snap.data() as DailyLogDoc;
+      return data.scores || null;
+    }
+    // Fallback to legacy grade-based score if available
+    if (legacyGrade) {
+      return await getDailyScoresFromFirestore(userId, legacyGrade, dateISO);
+    }
+    return null;
+  } catch (error) {
+    console.warn(`Firestore getDailyScoresForClass error for class ${classId} on ${dateISO}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Save daily scores to Firestore for a specific class
+ */
+export async function saveDailyScoresForClass(
+  userId: string,
+  classId: string,
+  grade: number,
+  dateISO: string,
+  dateDisplay: string,
+  teacher: string,
+  scores: ScoresState
+): Promise<boolean> {
+  if (!userId || !classId) return false;
+  try {
+    const docId = `class_${classId}_date_${dateISO}`;
+    const docRef = doc(db, 'users', userId, DAILY_LOGS_COL, docId);
+    await setDoc(docRef, {
+      classId,
+      grade,
+      date: dateISO,
+      dateDisplay,
+      teacher,
+      scores,
+      updatedAt: Date.now()
+    }, { merge: true });
+    return true;
+  } catch (error) {
+    console.error(`Firestore saveDailyScoresForClass error for class ${classId}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Compute student averages across all saved daily scores in Firestore for a given class
+ */
+export async function getClassHistoryFromFirestore(
+  userId: string, 
+  classId: string, 
+  legacyGrade?: number
+): Promise<GradeHistoryState> {
+  const history: GradeHistoryState = {};
+  if (!userId || !classId) return history;
+  const categories: CategoryKey[] = ['engagement', 'responsibility', 'respect'];
+
+  try {
+    const q = query(
+      collection(db, 'users', userId, DAILY_LOGS_COL), 
+      where('classId', '==', classId)
+    );
+    let querySnapshot = await getDocs(q);
+
+    // Fallback: If no scores tagged with classId and legacyGrade provided, check grade query
+    if (querySnapshot.empty && legacyGrade) {
+      const legacyQ = query(
+        collection(db, 'users', userId, DAILY_LOGS_COL), 
+        where('grade', '==', legacyGrade)
+      );
+      querySnapshot = await getDocs(legacyQ);
+    }
+
+    querySnapshot.forEach((docSnap) => {
+      const log = docSnap.data() as DailyLogDoc;
+      if (!log.scores) return;
+
+      Object.entries(log.scores).forEach(([studentName, stuScores]) => {
+        if (!history[studentName]) {
+          history[studentName] = {
+            engagement: { sum: 0, count: 0 },
+            responsibility: { sum: 0, count: 0 },
+            respect: { sum: 0, count: 0 }
+          };
+        }
+
+        categories.forEach((cat) => {
+          const val = stuScores[cat];
+          if (val && val !== '' && !isNaN(Number(val))) {
+            const num = Number(val);
+            if (!history[studentName][cat]) {
+              history[studentName][cat] = { sum: 0, count: 0 };
+            }
+            history[studentName][cat]!.sum += num;
+            history[studentName][cat]!.count += 1;
+          }
+        });
+      });
+    });
+
+    return history;
+  } catch (error) {
+    console.warn(`Firestore getClassHistory error for class ${classId}:`, error);
+    return history;
+  }
+}
+
+/**
+ * Get all available logged dates for a class
+ */
+export async function getLoggedDatesForClass(
+  userId: string, 
+  classId: string, 
+  legacyGrade?: number
+): Promise<{ date: string; dateDisplay: string; updatedAt: number }[]> {
+  if (!userId || !classId) return [];
+  try {
+    const q = query(
+      collection(db, 'users', userId, DAILY_LOGS_COL), 
+      where('classId', '==', classId)
+    );
+    let querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty && legacyGrade) {
+      const legacyQ = query(
+        collection(db, 'users', userId, DAILY_LOGS_COL), 
+        where('grade', '==', legacyGrade)
+      );
+      querySnapshot = await getDocs(legacyQ);
+    }
+
+    const dates: { date: string; dateDisplay: string; updatedAt: number }[] = [];
+    
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data() as DailyLogDoc;
+      if (data.date) {
+        dates.push({
+          date: data.date,
+          dateDisplay: data.dateDisplay || data.date,
+          updatedAt: data.updatedAt || 0
+        });
+      }
+    });
+
+    return dates.sort((a, b) => b.date.localeCompare(a.date));
+  } catch (error) {
+    console.warn(`Error fetching logged dates for class ${classId}:`, error);
+    return [];
+  }
+}
 
 /**
  * Fetch roster for a specific grade for an authenticated teacher

@@ -53,6 +53,50 @@
       },
       "required": ["grade", "students"]
     },
+    "ClassDoc": {
+      "title": "ClassDoc",
+      "description": "Class or section created and managed by an authenticated teacher",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique class identifier"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the class (e.g. Period 1 - Grade 8 English)"
+        },
+        "grade": {
+          "type": "number",
+          "description": "Grade level number"
+        },
+        "subject": {
+          "type": "string",
+          "description": "Optional course/subject title"
+        },
+        "period": {
+          "type": "string",
+          "description": "Optional class period or block"
+        },
+        "color": {
+          "type": "string",
+          "description": "Color theme identifier"
+        },
+        "students": {
+          "type": "array",
+          "description": "List of student names in this class"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp of last modification"
+        }
+      },
+      "required": ["id", "name", "grade", "students"]
+    },
     "DailyScoresLog": {
       "title": "DailyScoresLog",
       "description": "Daily student rating scores for a specific grade and date logged by a teacher",
@@ -113,6 +157,10 @@
     "/users/{userId}/rosters/{rosterId}": {
       "schema": "Roster",
       "description": "Grade rosters scoped strictly to the authenticated teacher"
+    },
+    "/users/{userId}/classes/{classId}": {
+      "schema": "ClassDoc",
+      "description": "Classes and custom sections created and managed by the authenticated teacher"
     },
     "/users/{userId}/dailyScores/{dailyScoreId}": {
       "schema": "DailyScoresLog",

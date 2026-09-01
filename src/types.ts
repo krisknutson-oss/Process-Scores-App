@@ -33,8 +33,21 @@ export interface TeacherProfile {
   updatedAt?: number;
 }
 
+export interface ClassDoc {
+  id: string;
+  name: string;
+  grade: number;
+  subject?: string;
+  period?: string;
+  color?: string;
+  students: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface DailyLogDoc {
   id?: string;
+  classId?: string;
   grade: number;
   date: string; // YYYY-MM-DD
   dateDisplay: string;
