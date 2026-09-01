@@ -23,7 +23,8 @@ import {
   Plus,
   Edit2,
   Layers,
-  ChevronDown
+  ChevronDown,
+  MessageSquare
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
@@ -52,6 +53,13 @@ const CATEGORY_LABELS: Record<CategoryKey, string> = {
   respect: 'Respect'
 };
 const CODES: ScoreValue[] = ['4', '3', '2', '1'];
+const MAX_COMMENT_WORDS = 70;
+
+const countWords = (text: string): number => {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).filter(Boolean).length;
+};
 
 // Default starter roster per grade for new teacher accounts
 const DEFAULT_INITIAL_ROSTERS: Record<number, string[]> = {
@@ -587,11 +595,37 @@ export default function App() {
     triggerAutoSave(newScores);
   };
 
-  // Clear single student
-  const handleClearStudent = (student: string) => {
+  // Comment update with 70 words limit
+  const handleCommentChange = (student: string, text: string) => {
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    let finalComment = text;
+    if (words.length > MAX_COMMENT_WORDS) {
+      finalComment = words.slice(0, MAX_COMMENT_WORDS).join(' ');
+    }
+
     const newScores: ScoresState = {
       ...scores,
-      [student]: { engagement: '3', responsibility: '3', respect: '3' }
+      [student]: {
+        ...(scores[student] || { engagement: '', responsibility: '', respect: '' }),
+        comment: finalComment
+      }
+    };
+
+    setScores(newScores);
+    triggerAutoSave(newScores);
+  };
+
+  // Clear single student (resets scores to 3, retains comment)
+  const handleClearStudent = (student: string) => {
+    const existingComment = scores[student]?.comment || '';
+    const newScores: ScoresState = {
+      ...scores,
+      [student]: {
+        engagement: '3',
+        responsibility: '3',
+        respect: '3',
+        comment: existingComment
+      }
     };
     setScores(newScores);
     triggerAutoSave(newScores);
@@ -705,12 +739,17 @@ export default function App() {
     setShowResetAllModal(true);
   };
 
-  // Perform reset all students in active class to 3
+  // Perform reset all students in active class to 3 (retaining comments)
   const handleConfirmResetAllToThree = () => {
     if (roster.length === 0 || !activeClass) return;
     const newScores: ScoresState = {};
     roster.forEach((name) => {
-      newScores[name] = { engagement: '3', responsibility: '3', respect: '3' };
+      newScores[name] = {
+        engagement: '3',
+        responsibility: '3',
+        respect: '3',
+        comment: scores[name]?.comment || ''
+      };
     });
     setScores(newScores);
     triggerAutoSave(newScores);
@@ -775,12 +814,13 @@ export default function App() {
     if (webAppUrl && webAppUrl.trim().startsWith('http')) {
       try {
         const entries = roster
-          .filter((name) => CATEGORIES.some((c) => scores[name]?.[c] !== ''))
+          .filter((name) => CATEGORIES.some((c) => scores[name]?.[c] !== '') || Boolean(scores[name]?.comment))
           .map((name) => ({
             student: name,
-            engagement: scores[name].engagement,
-            responsibility: scores[name].responsibility,
-            respect: scores[name].respect
+            engagement: scores[name]?.engagement || '',
+            responsibility: scores[name]?.responsibility || '',
+            respect: scores[name]?.respect || '',
+            comment: scores[name]?.comment || scores[name]?.notes || ''
           }));
 
         await fetch(webAppUrl, {
@@ -886,12 +926,14 @@ export default function App() {
       'Engagement',
       'Responsibility',
       'Respect',
+      'Daily Comment',
       'Engagement Avg',
       'Responsibility Avg',
       'Respect Avg'
     ];
     const rows = roster.map((name) => {
       const s = scores[name] || { engagement: '', responsibility: '', respect: '' };
+      const comment = (s.comment || s.notes || '').replace(/"/g, '""');
       const engAvg = computeStudentCategoryAverage(name, 'engagement')?.toFixed(1) || '';
       const respAvg = computeStudentCategoryAverage(name, 'responsibility')?.toFixed(1) || '';
       const respkAvg = computeStudentCategoryAverage(name, 'respect')?.toFixed(1) || '';
@@ -905,6 +947,7 @@ export default function App() {
         s.engagement,
         s.responsibility,
         s.respect,
+        `"${comment}"`,
         engAvg,
         respAvg,
         respkAvg
@@ -1484,115 +1527,167 @@ export default function App() {
             roster.map((name) => {
               const s = scores[name] || { engagement: '', responsibility: '', respect: '' };
               const complete = studentIsComplete(name);
+              const currentComment = s.comment || s.notes || '';
+              const wordCount = countWords(currentComment);
 
               return (
                 <div
                   key={name}
                   data-name={name}
-                  className={`bg-white border-2 rounded-xl p-3.5 sm:p-4 flex items-center justify-between gap-4 flex-wrap md:flex-nowrap transition-all ${
+                  className={`bg-white border-2 rounded-xl p-3.5 sm:p-4 flex flex-col gap-3 transition-all ${
                     complete
                       ? 'border-[#18191B] bg-[#FAFAF7] bold-shadow'
                       : 'border-[#18191B] bold-shadow-sm'
                   }`}
                 >
-                  {/* Student Name & Actions Column (Reset to 3 & Remove Student below) */}
-                  <div className="w-full sm:w-48 md:w-56 flex-shrink-0 flex flex-col justify-center gap-2 pr-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`w-3 h-3 rounded-full flex-shrink-0 border border-[#18191B] transition-colors ${
-                          complete ? 'bg-[#1F6F6B]' : 'bg-[#E4DFC8]'
-                        }`}
-                        title={complete ? 'All scores complete' : 'Pending scores'}
-                      />
-                      <span className="font-black text-[15px] text-[#18191B] truncate" title={name}>
-                        {name}
-                      </span>
-                    </div>
-
-                    {/* Action buttons stacked below the student name */}
-                    <div className="flex flex-col gap-1.5 pl-5">
-                      <button
-                        id={`clearBtn-${name.replace(/\s+/g, '_')}`}
-                        onClick={() => handleClearStudent(name)}
-                        className="text-[10px] font-black uppercase tracking-wider text-[#5C626A] hover:text-[#18191B] bg-[#F6F5F0] hover:bg-[#E8F2F0] px-2.5 py-1 rounded-md border border-[#18191B]/40 hover:border-[#18191B] transition cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5 w-fit"
-                        title="Reset this student's scores to 3"
-                      >
-                        <RotateCcw className="w-3 h-3 stroke-[2.5]" />
-                        <span>Reset to 3</span>
-                      </button>
-
-                      <button
-                        id={`removeBtn-${name.replace(/\s+/g, '_')}`}
-                        onClick={() => handleInitiateRemoveStudent(name)}
-                        className="text-[10px] font-bold text-[#5C626A] hover:text-[#D94826] hover:bg-[#FBEBE7] px-2.5 py-0.5 rounded-md border border-transparent hover:border-[#D94826]/40 transition cursor-pointer flex items-center gap-1.5 w-fit"
-                        title={`Remove ${name} from ${activeClass?.name}`}
-                      >
-                        <Trash2 className="w-3 h-3 stroke-[2.5]" />
-                        <span>Remove student</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Process Scores Row */}
-                  <div className="flex items-center gap-4 sm:gap-6 flex-1 flex-wrap lg:flex-nowrap justify-start sm:justify-center py-1 sm:py-0">
-                    {CATEGORIES.map((cat) => (
-                      <div key={cat} className="flex flex-col gap-1 items-start">
-                        <span className="text-[10px] uppercase tracking-wider text-[#18191B] font-black">
-                          {CATEGORY_LABELS[cat]}
-                        </span>
-                        <div className="flex items-center gap-1 sm:gap-1.5">
-                          {CODES.map((code) => {
-                            const isActive = s[cat] === code;
-                            return (
-                              <button
-                                key={code}
-                                id={`scoreBtn-${name.replace(/\s+/g, '_')}-${cat}-${code}`}
-                                type="button"
-                                onClick={() => handleScoreClick(name, cat, code)}
-                                className={`w-8 h-8 rounded-lg border-2 font-mono-jb text-xs font-black transition-all cursor-pointer ${
-                                  isActive
-                                    ? 'bg-[#18191B] border-[#18191B] text-white bold-shadow-sm -translate-y-0.5'
-                                    : 'bg-[#F6F5F0] border-[#18191B]/40 text-[#18191B] hover:border-[#18191B] hover:bg-white'
-                                }`}
-                              >
-                                {code}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Multi-day Category Averages */}
-                  <div className="flex items-center gap-1.5 sm:gap-2 ml-auto flex-shrink-0 pl-3 sm:pl-4 border-t sm:border-t-0 sm:border-l-2 border-[#18191B] pt-2 sm:pt-0 w-full sm:w-auto justify-end">
-                    {CATEGORIES.map((cat) => {
-                      const avg = computeStudentCategoryAverage(name, cat);
-                      const isEmpty = avg === null;
-
-                      return (
-                        <div
-                          key={cat}
-                          className={`flex flex-col items-center justify-center w-12 sm:w-13 py-1 px-1 rounded-lg border-2 text-center transition-all ${
-                            isEmpty
-                              ? 'bg-[#F6F5F0] border-[#18191B]/30'
-                              : 'bg-[#E8F2F0] border-[#18191B] bold-shadow-sm'
+                  {/* Top Row: Student Name, Scores, and Averages */}
+                  <div className="flex items-center justify-between gap-4 flex-wrap md:flex-nowrap w-full">
+                    {/* Student Name & Actions Column (Reset to 3 & Remove Student below) */}
+                    <div className="w-full sm:w-48 md:w-56 flex-shrink-0 flex flex-col justify-center gap-2 pr-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`w-3 h-3 rounded-full flex-shrink-0 border border-[#18191B] transition-colors ${
+                            complete ? 'bg-[#1F6F6B]' : 'bg-[#E4DFC8]'
                           }`}
-                          title={`${CATEGORY_LABELS[cat]} Multi-day Average`}
+                          title={complete ? 'All scores complete' : 'Pending scores'}
+                        />
+                        <span className="font-black text-[15px] text-[#18191B] truncate" title={name}>
+                          {name}
+                        </span>
+                      </div>
+
+                      {/* Action buttons stacked below the student name */}
+                      <div className="flex flex-col gap-1.5 pl-5">
+                        <button
+                          id={`clearBtn-${name.replace(/\s+/g, '_')}`}
+                          onClick={() => handleClearStudent(name)}
+                          className="text-[10px] font-black uppercase tracking-wider text-[#5C626A] hover:text-[#18191B] bg-[#F6F5F0] hover:bg-[#E8F2F0] px-2.5 py-1 rounded-md border border-[#18191B]/40 hover:border-[#18191B] transition cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5 w-fit"
+                          title="Reset this student's scores to 3"
                         >
-                          <span className="text-[9px] uppercase tracking-wider font-black leading-tight text-[#18191B]">
-                            {CATEGORY_LABELS[cat].slice(0, 4)}
+                          <RotateCcw className="w-3 h-3 stroke-[2.5]" />
+                          <span>Reset to 3</span>
+                        </button>
+
+                        <button
+                          id={`removeBtn-${name.replace(/\s+/g, '_')}`}
+                          onClick={() => handleInitiateRemoveStudent(name)}
+                          className="text-[10px] font-bold text-[#5C626A] hover:text-[#D94826] hover:bg-[#FBEBE7] px-2.5 py-0.5 rounded-md border border-transparent hover:border-[#D94826]/40 transition cursor-pointer flex items-center gap-1.5 w-fit"
+                          title={`Remove ${name} from ${activeClass?.name}`}
+                        >
+                          <Trash2 className="w-3 h-3 stroke-[2.5]" />
+                          <span>Remove student</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Process Scores Row */}
+                    <div className="flex items-center gap-4 sm:gap-6 flex-1 flex-wrap lg:flex-nowrap justify-start sm:justify-center py-1 sm:py-0">
+                      {CATEGORIES.map((cat) => (
+                        <div key={cat} className="flex flex-col gap-1 items-start">
+                          <span className="text-[10px] uppercase tracking-wider text-[#18191B] font-black">
+                            {CATEGORY_LABELS[cat]}
                           </span>
-                          <span
-                            className={`font-mono-jb text-[12px] sm:text-[13px] font-black leading-snug mt-0.5 ${
-                              isEmpty ? 'text-[#5C626A]' : 'text-[#18191B]'
-                            }`}
-                          >
-                            {avg === null ? '—' : avg.toFixed(1)}
-                          </span>
+                          <div className="flex items-center gap-1 sm:gap-1.5">
+                            {CODES.map((code) => {
+                              const isActive = s[cat] === code;
+                              return (
+                                <button
+                                  key={code}
+                                  id={`scoreBtn-${name.replace(/\s+/g, '_')}-${cat}-${code}`}
+                                  type="button"
+                                  onClick={() => handleScoreClick(name, cat, code)}
+                                  className={`w-8 h-8 rounded-lg border-2 font-mono-jb text-xs font-black transition-all cursor-pointer ${
+                                    isActive
+                                      ? 'bg-[#18191B] border-[#18191B] text-white bold-shadow-sm -translate-y-0.5'
+                                      : 'bg-[#F6F5F0] border-[#18191B]/40 text-[#18191B] hover:border-[#18191B] hover:bg-white'
+                                  }`}
+                                >
+                                  {code}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
+
+                    {/* Multi-day Category Averages */}
+                    <div className="flex items-center gap-1.5 sm:gap-2 ml-auto flex-shrink-0 pl-3 sm:pl-4 border-t sm:border-t-0 sm:border-l-2 border-[#18191B] pt-2 sm:pt-0 w-full sm:w-auto justify-end">
+                      {CATEGORIES.map((cat) => {
+                        const avg = computeStudentCategoryAverage(name, cat);
+                        const isEmpty = avg === null;
+
+                        return (
+                          <div
+                            key={cat}
+                            className={`flex flex-col items-center justify-center w-12 sm:w-13 py-1 px-1 rounded-lg border-2 text-center transition-all ${
+                              isEmpty
+                                ? 'bg-[#F6F5F0] border-[#18191B]/30'
+                                : 'bg-[#E8F2F0] border-[#18191B] bold-shadow-sm'
+                            }`}
+                            title={`${CATEGORY_LABELS[cat]} Multi-day Average`}
+                          >
+                            <span className="text-[9px] uppercase tracking-wider font-black leading-tight text-[#18191B]">
+                              {CATEGORY_LABELS[cat].slice(0, 4)}
+                            </span>
+                            <span
+                              className={`font-mono-jb text-[12px] sm:text-[13px] font-black leading-snug mt-0.5 ${
+                                isEmpty ? 'text-[#5C626A]' : 'text-[#18191B]'
+                              }`}
+                            >
+                              {avg === null ? '—' : avg.toFixed(1)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Bottom: Small Comment Section (Max 70 Words) */}
+                  <div className="w-full pt-2.5 border-t border-[#18191B]/15 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label
+                        htmlFor={`comment-${name.replace(/\s+/g, '_')}`}
+                        className="text-[11px] font-black uppercase tracking-wider text-[#18191B] flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-[#1F6F6B] stroke-[2.5]" />
+                        <span>Daily Comment / Observation</span>
+                      </label>
+
+                      <div className="flex items-center gap-2">
+                        {currentComment && (
+                          <button
+                            type="button"
+                            id={`clearCommentBtn-${name.replace(/\s+/g, '_')}`}
+                            onClick={() => handleCommentChange(name, '')}
+                            className="text-[10px] font-bold text-[#5C626A] hover:text-[#D94826] transition cursor-pointer"
+                            title="Clear comment"
+                          >
+                            Clear
+                          </button>
+                        )}
+                        <span
+                          className={`text-[10px] font-mono-jb font-black px-1.5 py-0.5 rounded border transition-colors ${
+                            wordCount >= MAX_COMMENT_WORDS
+                              ? 'bg-[#FBEBE7] text-[#D94826] border-[#D94826]'
+                              : wordCount >= 55
+                              ? 'bg-[#FEF3C7] text-[#B45309] border-[#D97706]'
+                              : 'bg-[#F6F5F0] text-[#5C626A] border-[#18191B]/20'
+                          }`}
+                        >
+                          {wordCount} / {MAX_COMMENT_WORDS} words
+                        </span>
+                      </div>
+                    </div>
+
+                    <textarea
+                      id={`comment-${name.replace(/\s+/g, '_')}`}
+                      rows={2}
+                      value={currentComment}
+                      onChange={(e) => handleCommentChange(name, e.target.value)}
+                      placeholder={`Add a quick note or observation for ${name} (max 70 words)…`}
+                      className="w-full px-3 py-2 text-xs font-medium rounded-lg border-2 border-[#18191B]/20 bg-white hover:border-[#18191B]/50 focus:bg-white focus:border-[#1F6F6B] focus:outline-none focus:ring-1 focus:ring-[#1F6F6B] placeholder:text-[#5C626A]/60 text-[#18191B] transition resize-y min-h-[48px] leading-relaxed"
+                    />
                   </div>
                 </div>
               );

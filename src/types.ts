@@ -6,6 +6,7 @@ export interface StudentScoreMap {
   engagement: string;
   responsibility: string;
   respect: string;
+  comment?: string;
   notes?: string;
 }
 
